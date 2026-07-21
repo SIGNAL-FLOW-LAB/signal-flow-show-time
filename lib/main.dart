@@ -32,10 +32,18 @@ class ShowTimeApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const MaterialApp(
+    return MaterialApp(
       title: 'SIGNAL FLOW Show Time',
       debugShowCheckedModeBanner: false,
-      home: ShowTimeScreen(),
+      theme: ThemeData(
+        brightness: Brightness.dark,
+        scaffoldBackgroundColor: Colors.black,
+        colorScheme: const ColorScheme.dark(
+          primary: Color(0xFF69F0AE),
+          surface: Color(0xFF151515),
+        ),
+      ),
+      home: const ShowTimeScreen(),
     );
   }
 }
@@ -52,6 +60,9 @@ class ShowTimeScreen extends StatefulWidget {
 class _ShowTimeScreenState extends State<ShowTimeScreen> {
   static const String _showTitleKey = 'show_title';
   static const String _alwaysOnTopKey = 'always_on_top';
+  static const String _showCurrentTimeKey = 'show_current_time';
+  static const String _showCurrentTimeSecondsKey = 'show_current_time_seconds';
+  static const String _use24HourClockKey = 'use_24_hour_clock';
 
   final SharedPreferencesAsync _preferences = SharedPreferencesAsync();
   final TextEditingController _titleController = TextEditingController();
@@ -69,8 +80,12 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
   Duration _showElapsed = Duration.zero;
 
   String _showTitle = '';
+
   bool _isEditingTitle = false;
   bool _isAlwaysOnTop = false;
+  bool _showCurrentTime = true;
+  bool _showCurrentTimeSeconds = true;
+  bool _use24HourClock = true;
 
   @override
   void initState() {
@@ -83,8 +98,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
 
     _enableWakelock();
 
-    unawaited(_loadShowTitle());
-    unawaited(_loadAlwaysOnTop());
+    unawaited(_loadSettings());
 
     _screenTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
       final now = DateTime.now();
@@ -105,21 +119,38 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
     });
   }
 
-  Future<void> _loadAlwaysOnTop() async {
-    if (!isDesktopPlatform) {
-      return;
+  Future<void> _loadSettings() async {
+    final savedTitle = await _preferences.getString(_showTitleKey) ?? '';
+
+    final showCurrentTime =
+        await _preferences.getBool(_showCurrentTimeKey) ?? true;
+
+    final showCurrentTimeSeconds =
+        await _preferences.getBool(_showCurrentTimeSecondsKey) ?? true;
+
+    final use24HourClock =
+        await _preferences.getBool(_use24HourClockKey) ?? true;
+
+    bool alwaysOnTop = false;
+
+    if (isDesktopPlatform) {
+      alwaysOnTop = await _preferences.getBool(_alwaysOnTopKey) ?? false;
+
+      await windowManager.setAlwaysOnTop(alwaysOnTop);
     }
-
-    final savedValue = await _preferences.getBool(_alwaysOnTopKey) ?? false;
-
-    await windowManager.setAlwaysOnTop(savedValue);
 
     if (!mounted) {
       return;
     }
 
     setState(() {
-      _isAlwaysOnTop = savedValue;
+      _showTitle = savedTitle.trim();
+      _titleController.text = _showTitle;
+
+      _showCurrentTime = showCurrentTime;
+      _showCurrentTimeSeconds = showCurrentTimeSeconds;
+      _use24HourClock = use24HourClock;
+      _isAlwaysOnTop = alwaysOnTop;
     });
   }
 
@@ -140,6 +171,30 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
     setState(() {
       _isAlwaysOnTop = newValue;
     });
+  }
+
+  Future<void> _setShowCurrentTime(bool value) async {
+    setState(() {
+      _showCurrentTime = value;
+    });
+
+    await _preferences.setBool(_showCurrentTimeKey, value);
+  }
+
+  Future<void> _setShowCurrentTimeSeconds(bool value) async {
+    setState(() {
+      _showCurrentTimeSeconds = value;
+    });
+
+    await _preferences.setBool(_showCurrentTimeSecondsKey, value);
+  }
+
+  Future<void> _setUse24HourClock(bool value) async {
+    setState(() {
+      _use24HourClock = value;
+    });
+
+    await _preferences.setBool(_use24HourClockKey, value);
   }
 
   void _enableWakelock() {
@@ -186,19 +241,6 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
     _disableWakelock();
 
     super.dispose();
-  }
-
-  Future<void> _loadShowTitle() async {
-    final savedTitle = await _preferences.getString(_showTitleKey) ?? '';
-
-    if (!mounted) {
-      return;
-    }
-
-    setState(() {
-      _showTitle = savedTitle.trim();
-      _titleController.text = _showTitle;
-    });
   }
 
   void _beginTitleEditing() {
@@ -294,11 +336,27 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
   }
 
   String _formatCurrentTime(DateTime time) {
-    final hours = time.hour.toString().padLeft(2, '0');
+    var hour = time.hour;
+    var suffix = '';
+
+    if (!_use24HourClock) {
+      suffix = hour >= 12 ? ' PM' : ' AM';
+      hour %= 12;
+
+      if (hour == 0) {
+        hour = 12;
+      }
+    }
+
+    final hours = hour.toString().padLeft(2, '0');
     final minutes = time.minute.toString().padLeft(2, '0');
     final seconds = time.second.toString().padLeft(2, '0');
 
-    return '$hours:$minutes:$seconds';
+    if (_showCurrentTimeSeconds) {
+      return '$hours:$minutes:$seconds$suffix';
+    }
+
+    return '$hours:$minutes$suffix';
   }
 
   String _formatElapsedTime(Duration duration) {
@@ -317,8 +375,10 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
     switch (_timerStatus) {
       case ShowTimerStatus.idle:
         return Colors.white;
+
       case ShowTimerStatus.running:
         return Colors.greenAccent;
+
       case ShowTimerStatus.paused:
         return Colors.amber;
     }
@@ -328,20 +388,164 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
     return value.clamp(minimum, maximum).toDouble();
   }
 
-  Widget _buildAlwaysOnTopButton() {
-    if (!isDesktopPlatform) {
-      return const SizedBox.shrink();
-    }
+  Future<void> _openSettings() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF171717),
+      barrierColor: Colors.black54,
+      useSafeArea: true,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            Future<void> updateShowCurrentTime(bool value) async {
+              setSheetState(() {
+                _showCurrentTime = value;
+              });
 
-    return Tooltip(
-      message: _isAlwaysOnTop ? '最前面固定を解除' : '常に最前面に固定',
-      child: IconButton(
-        onPressed: _toggleAlwaysOnTop,
-        iconSize: 22,
-        splashRadius: 22,
-        color: _isAlwaysOnTop ? const Color(0xFF69F0AE) : Colors.white38,
-        icon: Icon(_isAlwaysOnTop ? Icons.push_pin : Icons.push_pin_outlined),
-      ),
+              await _setShowCurrentTime(value);
+            }
+
+            Future<void> updateSeconds(bool value) async {
+              setSheetState(() {
+                _showCurrentTimeSeconds = value;
+              });
+
+              await _setShowCurrentTimeSeconds(value);
+            }
+
+            Future<void> updateClockFormat(bool value) async {
+              setSheetState(() {
+                _use24HourClock = value;
+              });
+
+              await _setUse24HourClock(value);
+            }
+
+            Future<void> updateAlwaysOnTop(bool value) async {
+              await _toggleAlwaysOnTop();
+
+              setSheetState(() {});
+            }
+
+            return ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 600),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(18, 0, 18, 24),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        '表示設定',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+
+                      const SizedBox(height: 12),
+
+                      SwitchListTile.adaptive(
+                        value: _showCurrentTime,
+                        activeTrackColor: Colors.green,
+                        title: const Text('現在時刻を表示'),
+                        subtitle: const Text('公演用ストップウォッチの上に現在時刻を表示します'),
+                        onChanged: updateShowCurrentTime,
+                      ),
+
+                      SwitchListTile.adaptive(
+                        value: _showCurrentTimeSeconds,
+                        activeTrackColor: Colors.green,
+                        title: const Text('現在時刻に秒を表示'),
+                        subtitle: const Text('OFFにすると「17:45」のように表示します'),
+                        onChanged: _showCurrentTime ? updateSeconds : null,
+                      ),
+
+                      SwitchListTile.adaptive(
+                        value: _use24HourClock,
+                        activeTrackColor: Colors.green,
+                        title: const Text('24時間表記'),
+                        subtitle: Text(
+                          _use24HourClock
+                              ? '17:45形式で表示します'
+                              : '05:45 PM形式で表示します',
+                        ),
+                        onChanged: _showCurrentTime ? updateClockFormat : null,
+                      ),
+
+                      if (isDesktopPlatform) ...[
+                        const Divider(height: 28),
+
+                        SwitchListTile.adaptive(
+                          value: _isAlwaysOnTop,
+                          activeTrackColor: Colors.green,
+                          title: const Text('常に最前面に表示'),
+                          subtitle: const Text('ほかのアプリを操作してもShow Timeを手前に残します'),
+                          onChanged: updateAlwaysOnTop,
+                        ),
+                      ],
+
+                      const SizedBox(height: 12),
+
+                      SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: FilledButton(
+                          onPressed: () {
+                            Navigator.of(sheetContext).pop();
+                          },
+                          child: const Text(
+                            '閉じる',
+                            style: TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildTopRightControls() {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Tooltip(
+          message: '表示設定',
+          child: IconButton(
+            onPressed: _openSettings,
+            iconSize: 23,
+            splashRadius: 22,
+            color: Colors.white54,
+            icon: const Icon(Icons.settings_outlined),
+          ),
+        ),
+
+        if (isDesktopPlatform)
+          Tooltip(
+            message: _isAlwaysOnTop ? '最前面固定を解除' : '常に最前面に固定',
+            child: IconButton(
+              onPressed: _toggleAlwaysOnTop,
+              iconSize: 22,
+              splashRadius: 22,
+              color: _isAlwaysOnTop ? const Color(0xFF69F0AE) : Colors.white38,
+              icon: Icon(
+                _isAlwaysOnTop ? Icons.push_pin : Icons.push_pin_outlined,
+              ),
+            ),
+          ),
+      ],
     );
   }
 
@@ -398,7 +602,9 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
                 onSubmitted: (_) => _saveShowTitle(),
               ),
             ),
+
             const SizedBox(width: 8),
+
             IconButton(
               tooltip: '保存',
               onPressed: _saveShowTitle,
@@ -407,6 +613,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
                 color: Colors.greenAccent,
               ),
             ),
+
             IconButton(
               tooltip: 'キャンセル',
               onPressed: _cancelTitleEditing,
@@ -447,7 +654,9 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
                     ),
                   ),
                 ),
+
                 const SizedBox(width: 8),
+
                 const Icon(
                   Icons.edit_outlined,
                   size: 17,
@@ -537,6 +746,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
                 ),
               ),
             ),
+
             Material(
               color: Colors.red.shade700,
               borderRadius: BorderRadius.circular(30),
@@ -587,7 +797,6 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
                 final keyboardHeight = MediaQuery.viewInsetsOf(context).bottom;
 
                 final isKeyboardVisible = keyboardHeight > 0;
-
                 final isNarrow = width < 600;
                 final isCompactHeight = height < 600;
 
@@ -692,35 +901,43 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
                             fontSize: titleFontSize,
                             availableWidth: titleWidth,
                           ),
+
                           SizedBox(height: titleGap),
-                          Text(
-                            'CURRENT TIME',
-                            style: TextStyle(
-                              color: Colors.white70,
-                              fontSize: labelFontSize,
+
+                          if (_showCurrentTime) ...[
+                            Text(
+                              'CURRENT TIME',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: labelFontSize,
+                              ),
                             ),
-                          ),
-                          SizedBox(height: labelGap),
-                          SizedBox(
-                            width: double.infinity,
-                            height: currentTimeFontSize * 1.25,
-                            child: FittedBox(
-                              fit: BoxFit.scaleDown,
-                              child: Text(
-                                _formatCurrentTime(_currentTime),
-                                maxLines: 1,
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: currentTimeFontSize,
-                                  fontWeight: FontWeight.bold,
-                                  fontFeatures: const [
-                                    FontFeature.tabularFigures(),
-                                  ],
+
+                            SizedBox(height: labelGap),
+
+                            SizedBox(
+                              width: double.infinity,
+                              height: currentTimeFontSize * 1.25,
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text(
+                                  _formatCurrentTime(_currentTime),
+                                  maxLines: 1,
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: currentTimeFontSize,
+                                    fontWeight: FontWeight.bold,
+                                    fontFeatures: const [
+                                      FontFeature.tabularFigures(),
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                          SizedBox(height: sectionGap),
+
+                            SizedBox(height: sectionGap),
+                          ],
+
                           Text(
                             'SHOW TIME',
                             style: TextStyle(
@@ -728,7 +945,9 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
                               fontSize: labelFontSize,
                             ),
                           ),
+
                           SizedBox(height: labelGap),
+
                           SizedBox(
                             width: double.infinity,
                             height: showTimeFontSize * 1.25,
@@ -752,12 +971,15 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
                               ),
                             ),
                           ),
+
                           SizedBox(height: buttonTopGap),
+
                           _buildMainControl(
                             width: buttonWidth,
                             height: buttonHeight,
                             fontSize: buttonFontSize,
                           ),
+
                           const SizedBox(height: 8),
                         ],
                       ),
@@ -768,16 +990,15 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
             ),
           ),
 
-          if (isDesktopPlatform)
-            SafeArea(
-              child: Align(
-                alignment: Alignment.topRight,
-                child: Padding(
-                  padding: const EdgeInsets.all(10),
-                  child: _buildAlwaysOnTopButton(),
-                ),
+          SafeArea(
+            child: Align(
+              alignment: Alignment.topRight,
+              child: Padding(
+                padding: const EdgeInsets.all(10),
+                child: _buildTopRightControls(),
               ),
             ),
+          ),
         ],
       ),
     );
