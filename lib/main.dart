@@ -5,8 +5,25 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
+import 'package:window_manager/window_manager.dart';
 
-void main() {
+bool get isDesktopPlatform {
+  if (kIsWeb) {
+    return false;
+  }
+
+  return defaultTargetPlatform == TargetPlatform.macOS ||
+      defaultTargetPlatform == TargetPlatform.windows ||
+      defaultTargetPlatform == TargetPlatform.linux;
+}
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  if (isDesktopPlatform) {
+    await windowManager.ensureInitialized();
+  }
+
   runApp(const ShowTimeApp());
 }
 
@@ -34,6 +51,7 @@ class ShowTimeScreen extends StatefulWidget {
 
 class _ShowTimeScreenState extends State<ShowTimeScreen> {
   static const String _showTitleKey = 'show_title';
+  static const String _alwaysOnTopKey = 'always_on_top';
 
   final SharedPreferencesAsync _preferences = SharedPreferencesAsync();
   final TextEditingController _titleController = TextEditingController();
@@ -52,6 +70,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
 
   String _showTitle = '';
   bool _isEditingTitle = false;
+  bool _isAlwaysOnTop = false;
 
   @override
   void initState() {
@@ -64,7 +83,8 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
 
     _enableWakelock();
 
-    _loadShowTitle();
+    unawaited(_loadShowTitle());
+    unawaited(_loadAlwaysOnTop());
 
     _screenTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
       final now = DateTime.now();
@@ -82,6 +102,43 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
               _completedRunTime + now.difference(_currentRunStartedAt!);
         }
       });
+    });
+  }
+
+  Future<void> _loadAlwaysOnTop() async {
+    if (!isDesktopPlatform) {
+      return;
+    }
+
+    final savedValue = await _preferences.getBool(_alwaysOnTopKey) ?? false;
+
+    await windowManager.setAlwaysOnTop(savedValue);
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isAlwaysOnTop = savedValue;
+    });
+  }
+
+  Future<void> _toggleAlwaysOnTop() async {
+    if (!isDesktopPlatform) {
+      return;
+    }
+
+    final newValue = !_isAlwaysOnTop;
+
+    await windowManager.setAlwaysOnTop(newValue);
+    await _preferences.setBool(_alwaysOnTopKey, newValue);
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isAlwaysOnTop = newValue;
     });
   }
 
@@ -271,6 +328,23 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
     return value.clamp(minimum, maximum).toDouble();
   }
 
+  Widget _buildAlwaysOnTopButton() {
+    if (!isDesktopPlatform) {
+      return const SizedBox.shrink();
+    }
+
+    return Tooltip(
+      message: _isAlwaysOnTop ? '最前面固定を解除' : '常に最前面に固定',
+      child: IconButton(
+        onPressed: _toggleAlwaysOnTop,
+        iconSize: 22,
+        splashRadius: 22,
+        color: _isAlwaysOnTop ? const Color(0xFF69F0AE) : Colors.white38,
+        icon: Icon(_isAlwaysOnTop ? Icons.push_pin : Icons.push_pin_outlined),
+      ),
+    );
+  }
+
   Widget _buildShowTitle({
     required double fontSize,
     required double availableWidth,
@@ -392,7 +466,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
     required double height,
     required double fontSize,
   }) {
-    Widget control;
+    late final Widget control;
 
     switch (_timerStatus) {
       case ShowTimerStatus.idle:
@@ -413,6 +487,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
             ),
           ),
         );
+        break;
 
       case ShowTimerStatus.running:
         control = SizedBox(
@@ -432,6 +507,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
             ),
           ),
         );
+        break;
 
       case ShowTimerStatus.paused:
         final smallButtonWidth = width * 0.72;
@@ -485,6 +561,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
             ),
           ],
         );
+        break;
     }
 
     return AnimatedSwitcher(
@@ -497,221 +574,211 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-
-      // スマートフォンでキーボードが出た際に
-      // 画面サイズを自動調整します。
       resizeToAvoidBottomInset: true,
+      body: Stack(
+        children: [
+          SafeArea(
+            minimum: const EdgeInsets.all(8),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final width = constraints.maxWidth;
+                final height = constraints.maxHeight;
 
-      body: SafeArea(
-        minimum: const EdgeInsets.all(8),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final width = constraints.maxWidth;
-            final height = constraints.maxHeight;
+                final keyboardHeight = MediaQuery.viewInsetsOf(context).bottom;
 
-            // 画面キーボードによって隠れている高さです。
-            final keyboardHeight = MediaQuery.viewInsetsOf(context).bottom;
+                final isKeyboardVisible = keyboardHeight > 0;
 
-            // キーボードが表示されているかどうか。
-            final isKeyboardVisible = keyboardHeight > 0;
+                final isNarrow = width < 600;
+                final isCompactHeight = height < 600;
 
-            // 端末名ではなく、実際の表示領域で判定します。
-            final isNarrow = width < 600;
-            final isCompactHeight = height < 600;
+                final shortestSide = width < height ? width : height;
 
-            final shortestSide = width < height ? width : height;
+                final horizontalPadding = _clamp(
+                  width * (isNarrow ? 0.045 : 0.06),
+                  12,
+                  64,
+                );
 
-            final horizontalPadding = _clamp(
-              width * (isNarrow ? 0.045 : 0.06),
-              12,
-              64,
-            );
+                final verticalPadding = isCompactHeight ? 6.0 : 12.0;
 
-            final verticalPadding = isCompactHeight ? 6.0 : 12.0;
+                final titleWidth = width - (horizontalPadding * 2);
 
-            final titleWidth = width - (horizontalPadding * 2);
+                final titleFontSize = isCompactHeight
+                    ? _clamp(shortestSide * 0.045, 15, 21)
+                    : isNarrow
+                    ? _clamp(width * 0.052, 17, 24)
+                    : _clamp(width * 0.032, 20, 40);
 
-            // 高さが600未満の横長画面では、縦方向の収まりを優先します。
-            final titleFontSize = isCompactHeight
-                ? _clamp(shortestSide * 0.045, 15, 21)
-                : isNarrow
-                ? _clamp(width * 0.052, 17, 24)
-                : _clamp(width * 0.032, 20, 40);
+                final labelFontSize = isCompactHeight
+                    ? _clamp(shortestSide * 0.034, 11, 15)
+                    : isNarrow
+                    ? _clamp(width * 0.036, 12, 17)
+                    : _clamp(width * 0.020, 14, 26);
 
-            final labelFontSize = isCompactHeight
-                ? _clamp(shortestSide * 0.034, 11, 15)
-                : isNarrow
-                ? _clamp(width * 0.036, 12, 17)
-                : _clamp(width * 0.020, 14, 26);
+                final currentTimeFontSize = isCompactHeight
+                    ? _clamp(shortestSide * 0.135, 34, 52)
+                    : isNarrow
+                    ? _clamp(width * 0.13, 42, 62)
+                    : _clamp(width * 0.10, 56, 110);
 
-            final currentTimeFontSize = isCompactHeight
-                ? _clamp(shortestSide * 0.135, 34, 52)
-                : isNarrow
-                ? _clamp(width * 0.13, 42, 62)
-                : _clamp(width * 0.10, 56, 110);
+                final showTimeFontSize = isCompactHeight
+                    ? _clamp(shortestSide * 0.16, 38, 62)
+                    : isNarrow
+                    ? _clamp(width * 0.16, 48, 76)
+                    : _clamp(width * 0.135, 68, 150);
 
-            final showTimeFontSize = isCompactHeight
-                ? _clamp(shortestSide * 0.16, 38, 62)
-                : isNarrow
-                ? _clamp(width * 0.16, 48, 76)
-                : _clamp(width * 0.135, 68, 150);
+                final titleGap = _clamp(
+                  height * (isCompactHeight ? 0.018 : 0.035),
+                  8,
+                  28,
+                );
 
-            final titleGap = _clamp(
-              height * (isCompactHeight ? 0.018 : 0.035),
-              8,
-              28,
-            );
+                final sectionGap = _clamp(
+                  height * (isCompactHeight ? 0.03 : 0.055),
+                  12,
+                  48,
+                );
 
-            final sectionGap = _clamp(
-              height * (isCompactHeight ? 0.03 : 0.055),
-              12,
-              48,
-            );
+                final labelGap = _clamp(height * 0.014, 6, 14);
 
-            final labelGap = _clamp(height * 0.014, 6, 14);
+                final buttonTopGap = _clamp(
+                  height * (isCompactHeight ? 0.025 : 0.045),
+                  10,
+                  42,
+                );
 
-            final buttonTopGap = _clamp(
-              height * (isCompactHeight ? 0.025 : 0.045),
-              10,
-              42,
-            );
+                final buttonWidth = isCompactHeight
+                    ? _clamp(width * 0.30, 140, 210)
+                    : isNarrow
+                    ? _clamp(width * 0.55, 170, 230)
+                    : _clamp(width * 0.30, 210, 340);
 
-            final buttonWidth = isCompactHeight
-                ? _clamp(width * 0.30, 140, 210)
-                : isNarrow
-                ? _clamp(width * 0.55, 170, 230)
-                : _clamp(width * 0.30, 210, 340);
+                final buttonHeight = isCompactHeight
+                    ? _clamp(height * 0.13, 44, 52)
+                    : _clamp(height * 0.085, 50, 78);
 
-            final buttonHeight = isCompactHeight
-                ? _clamp(height * 0.13, 44, 52)
-                : _clamp(height * 0.085, 50, 78);
+                final buttonFontSize = isCompactHeight
+                    ? _clamp(shortestSide * 0.048, 16, 20)
+                    : isNarrow
+                    ? _clamp(width * 0.048, 18, 24)
+                    : _clamp(width * 0.026, 21, 32);
 
-            final buttonFontSize = isCompactHeight
-                ? _clamp(shortestSide * 0.048, 16, 20)
-                : isNarrow
-                ? _clamp(width * 0.048, 18, 24)
-                : _clamp(width * 0.026, 21, 32);
+                final contentMinHeight = isKeyboardVisible
+                    ? 0.0
+                    : height - (verticalPadding * 2);
 
-            // キーボード表示時はタイトル編集を優先して、
-            // 時計部分の余白を小さくします。
-            final contentMinHeight = isKeyboardVisible
-                ? 0.0
-                : height - (verticalPadding * 2);
-
-            return AnimatedPadding(
-              duration: const Duration(milliseconds: 180),
-              curve: Curves.easeOut,
-              padding: EdgeInsets.only(
-                left: horizontalPadding,
-                right: horizontalPadding,
-                top: verticalPadding,
-                bottom: verticalPadding,
-              ),
-              child: SingleChildScrollView(
-                keyboardDismissBehavior:
-                    ScrollViewKeyboardDismissBehavior.onDrag,
-
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    minHeight: contentMinHeight < 0 ? 0 : contentMinHeight,
+                return AnimatedPadding(
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOut,
+                  padding: EdgeInsets.only(
+                    left: horizontalPadding,
+                    right: horizontalPadding,
+                    top: verticalPadding,
+                    bottom: verticalPadding,
                   ),
-
-                  child: Column(
-                    mainAxisAlignment: isKeyboardVisible
-                        ? MainAxisAlignment.start
-                        : MainAxisAlignment.center,
-                    children: [
-                      _buildShowTitle(
-                        fontSize: titleFontSize,
-                        availableWidth: titleWidth,
+                  child: SingleChildScrollView(
+                    keyboardDismissBehavior:
+                        ScrollViewKeyboardDismissBehavior.onDrag,
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minHeight: contentMinHeight < 0 ? 0 : contentMinHeight,
                       ),
-
-                      SizedBox(height: titleGap),
-
-                      Text(
-                        'CURRENT TIME',
-                        style: TextStyle(
-                          color: Colors.white70,
-                          fontSize: labelFontSize,
-                        ),
-                      ),
-
-                      SizedBox(height: labelGap),
-
-                      SizedBox(
-                        width: double.infinity,
-                        height: currentTimeFontSize * 1.25,
-                        child: FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: Text(
-                            _formatCurrentTime(_currentTime),
-                            maxLines: 1,
+                      child: Column(
+                        mainAxisAlignment: isKeyboardVisible
+                            ? MainAxisAlignment.start
+                            : MainAxisAlignment.center,
+                        children: [
+                          _buildShowTitle(
+                            fontSize: titleFontSize,
+                            availableWidth: titleWidth,
+                          ),
+                          SizedBox(height: titleGap),
+                          Text(
+                            'CURRENT TIME',
                             style: TextStyle(
-                              color: Colors.white,
-                              fontSize: currentTimeFontSize,
-                              fontWeight: FontWeight.bold,
-                              fontFeatures: const [
-                                FontFeature.tabularFigures(),
-                              ],
+                              color: Colors.white70,
+                              fontSize: labelFontSize,
                             ),
                           ),
-                        ),
-                      ),
-
-                      SizedBox(height: sectionGap),
-
-                      Text(
-                        'SHOW TIME',
-                        style: TextStyle(
-                          color: Colors.white70,
-                          fontSize: labelFontSize,
-                        ),
-                      ),
-
-                      SizedBox(height: labelGap),
-
-                      SizedBox(
-                        width: double.infinity,
-                        height: showTimeFontSize * 1.25,
-                        child: FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: AnimatedDefaultTextStyle(
-                            duration: const Duration(milliseconds: 180),
-                            curve: Curves.easeOut,
-                            style: TextStyle(
-                              color: _showTimeColor,
-                              fontSize: showTimeFontSize,
-                              fontWeight: FontWeight.bold,
-                              fontFeatures: const [
-                                FontFeature.tabularFigures(),
-                              ],
-                            ),
-                            child: Text(
-                              _formatElapsedTime(_showElapsed),
-                              maxLines: 1,
+                          SizedBox(height: labelGap),
+                          SizedBox(
+                            width: double.infinity,
+                            height: currentTimeFontSize * 1.25,
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                _formatCurrentTime(_currentTime),
+                                maxLines: 1,
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: currentTimeFontSize,
+                                  fontWeight: FontWeight.bold,
+                                  fontFeatures: const [
+                                    FontFeature.tabularFigures(),
+                                  ],
+                                ),
+                              ),
                             ),
                           ),
-                        ),
+                          SizedBox(height: sectionGap),
+                          Text(
+                            'SHOW TIME',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: labelFontSize,
+                            ),
+                          ),
+                          SizedBox(height: labelGap),
+                          SizedBox(
+                            width: double.infinity,
+                            height: showTimeFontSize * 1.25,
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: AnimatedDefaultTextStyle(
+                                duration: const Duration(milliseconds: 180),
+                                curve: Curves.easeOut,
+                                style: TextStyle(
+                                  color: _showTimeColor,
+                                  fontSize: showTimeFontSize,
+                                  fontWeight: FontWeight.bold,
+                                  fontFeatures: const [
+                                    FontFeature.tabularFigures(),
+                                  ],
+                                ),
+                                child: Text(
+                                  _formatElapsedTime(_showElapsed),
+                                  maxLines: 1,
+                                ),
+                              ),
+                            ),
+                          ),
+                          SizedBox(height: buttonTopGap),
+                          _buildMainControl(
+                            width: buttonWidth,
+                            height: buttonHeight,
+                            fontSize: buttonFontSize,
+                          ),
+                          const SizedBox(height: 8),
+                        ],
                       ),
-
-                      SizedBox(height: buttonTopGap),
-
-                      _buildMainControl(
-                        width: buttonWidth,
-                        height: buttonHeight,
-                        fontSize: buttonFontSize,
-                      ),
-
-                      // iPhoneのホームインジケーター付近に
-                      // ボタンが密着しないための余白です。
-                      const SizedBox(height: 8),
-                    ],
+                    ),
                   ),
+                );
+              },
+            ),
+          ),
+
+          if (isDesktopPlatform)
+            SafeArea(
+              child: Align(
+                alignment: Alignment.topRight,
+                child: Padding(
+                  padding: const EdgeInsets.all(10),
+                  child: _buildAlwaysOnTopButton(),
                 ),
               ),
-            );
-          },
-        ),
+            ),
+        ],
       ),
     );
   }
