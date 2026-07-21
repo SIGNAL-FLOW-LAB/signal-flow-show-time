@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show FontFeature;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -7,10 +8,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:window_manager/window_manager.dart';
 
 bool get isDesktopPlatform {
-  if (kIsWeb) {
-    return false;
-  }
-
+  if (kIsWeb) return false;
   return defaultTargetPlatform == TargetPlatform.macOS ||
       defaultTargetPlatform == TargetPlatform.windows ||
       defaultTargetPlatform == TargetPlatform.linux;
@@ -18,11 +16,7 @@ bool get isDesktopPlatform {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  if (isDesktopPlatform) {
-    await windowManager.ensureInitialized();
-  }
-
+  if (isDesktopPlatform) await windowManager.ensureInitialized();
   runApp(const ShowTimeApp());
 }
 
@@ -68,25 +62,23 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
   late final AnimationController _resetProgressController;
 
   Timer? _controlHideTimer;
-
   DateTime _currentTime = DateTime.now();
-
   ShowTimerStatus _timerStatus = ShowTimerStatus.idle;
-
   DateTime? _currentRunStartedAt;
   Duration _completedRunTime = Duration.zero;
   Duration _showElapsed = Duration.zero;
-
   String _showTitle = '';
   bool _isEditingTitle = false;
-
   bool _isAlwaysOnTop = false;
   bool _showCurrentTime = true;
   bool _showCurrentSeconds = true;
   bool _use24Hour = true;
-
   bool _controlsVisible = true;
   bool _isHoldingReset = false;
+  bool _pointerUpdateQueued = false;
+
+  bool get _shouldShowMainControl =>
+      _timerStatus != ShowTimerStatus.running || _controlsVisible;
 
   @override
   void initState() {
@@ -96,7 +88,6 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
       vsync: this,
       duration: _resetHoldDuration,
     );
-
     _resetProgressController.addStatusListener((status) {
       if (status == AnimationStatus.completed && _isHoldingReset) {
         _completeResetHold();
@@ -109,19 +100,13 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
     );
 
     _enableWakelock();
-
     unawaited(_loadSavedSettings());
 
     _screenTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
       final now = DateTime.now();
-
-      if (!mounted) {
-        return;
-      }
-
+      if (!mounted) return;
       setState(() {
         _currentTime = now;
-
         if (_timerStatus == ShowTimerStatus.running &&
             _currentRunStartedAt != null) {
           _showElapsed =
@@ -133,30 +118,22 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
 
   Future<void> _loadSavedSettings() async {
     final savedTitle = await _preferences.getString(_showTitleKey) ?? '';
-
     final savedAlwaysOnTop =
         await _preferences.getBool(_alwaysOnTopKey) ?? false;
-
     final savedShowCurrentTime =
         await _preferences.getBool(_showCurrentTimeKey) ?? true;
-
     final savedShowCurrentSeconds =
         await _preferences.getBool(_showCurrentSecondsKey) ?? true;
-
     final savedUse24Hour = await _preferences.getBool(_use24HourKey) ?? true;
 
     if (isDesktopPlatform) {
       await windowManager.setAlwaysOnTop(savedAlwaysOnTop);
     }
-
-    if (!mounted) {
-      return;
-    }
+    if (!mounted) return;
 
     setState(() {
       _showTitle = savedTitle.trim();
       _titleController.text = _showTitle;
-
       _isAlwaysOnTop = savedAlwaysOnTop;
       _showCurrentTime = savedShowCurrentTime;
       _showCurrentSeconds = savedShowCurrentSeconds;
@@ -165,30 +142,18 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
   }
 
   void _enableWakelock() {
-    // Web版でのブラウザ依存エラーを避けるため、
-    // WebではWakelockを使用しません。
-    if (kIsWeb) {
-      return;
-    }
-
-    unawaited(WakelockPlus.enable());
+    if (!kIsWeb) unawaited(WakelockPlus.enable());
   }
 
   void _disableWakelock() {
-    if (kIsWeb) {
-      return;
-    }
-
-    unawaited(WakelockPlus.disable());
+    if (!kIsWeb) unawaited(WakelockPlus.disable());
   }
 
   void _handleAppResume() {
     final now = DateTime.now();
-
     if (mounted) {
       setState(() {
         _currentTime = now;
-
         if (_timerStatus == ShowTimerStatus.running &&
             _currentRunStartedAt != null) {
           _showElapsed =
@@ -196,51 +161,31 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
         }
       });
     }
-
     _enableWakelock();
-
-    if (_timerStatus == ShowTimerStatus.running) {
-      _showControlsTemporarily();
-    }
   }
 
   @override
   void dispose() {
     _screenTimer.cancel();
     _controlHideTimer?.cancel();
-
     _resetProgressController.dispose();
     _lifecycleListener.dispose();
-
     _titleController.dispose();
     _titleFocusNode.dispose();
-
     _disableWakelock();
-
     super.dispose();
   }
 
-  // ---------------------------------------------------------------------------
-  // タイトル
-  // ---------------------------------------------------------------------------
-
   void _beginTitleEditing() {
     _controlHideTimer?.cancel();
-
     _titleController.text = _showTitle;
-
     setState(() {
       _isEditingTitle = true;
       _controlsVisible = true;
     });
-
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) {
-        return;
-      }
-
+      if (!mounted) return;
       _titleFocusNode.requestFocus();
-
       _titleController.selection = TextSelection(
         baseOffset: 0,
         extentOffset: _titleController.text.length,
@@ -250,90 +195,72 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
 
   Future<void> _saveShowTitle() async {
     final newTitle = _titleController.text.trim();
-
     setState(() {
       _showTitle = newTitle;
       _isEditingTitle = false;
     });
-
     _titleFocusNode.unfocus();
-
     if (newTitle.isEmpty) {
       await _preferences.remove(_showTitleKey);
     } else {
       await _preferences.setString(_showTitleKey, newTitle);
     }
-
-    if (_timerStatus == ShowTimerStatus.running) {
-      _showControlsTemporarily();
-    }
+    if (_timerStatus == ShowTimerStatus.running) _showControlsTemporarily();
   }
 
   void _cancelTitleEditing() {
     _titleController.text = _showTitle;
     _titleFocusNode.unfocus();
-
-    setState(() {
-      _isEditingTitle = false;
-    });
-
-    if (_timerStatus == ShowTimerStatus.running) {
-      _showControlsTemporarily();
-    }
+    setState(() => _isEditingTitle = false);
+    if (_timerStatus == ShowTimerStatus.running) _showControlsTemporarily();
   }
 
-  // ---------------------------------------------------------------------------
-  // ストップウォッチ
-  // ---------------------------------------------------------------------------
-
   void _startShowTime() {
+    _controlHideTimer?.cancel();
     setState(() {
       _completedRunTime = Duration.zero;
       _showElapsed = Duration.zero;
       _currentRunStartedAt = DateTime.now();
       _timerStatus = ShowTimerStatus.running;
       _controlsVisible = true;
+      _isHoldingReset = false;
     });
-
+    _resetProgressController.reset();
     _scheduleControlHide();
   }
 
   void _pauseShowTime() {
-    if (_timerStatus != ShowTimerStatus.running ||
-        _currentRunStartedAt == null) {
+    if (_timerStatus != ShowTimerStatus.running || _currentRunStartedAt == null)
       return;
-    }
-
     final now = DateTime.now();
-
     _controlHideTimer?.cancel();
-
     setState(() {
       _completedRunTime += now.difference(_currentRunStartedAt!);
       _showElapsed = _completedRunTime;
       _currentRunStartedAt = null;
       _timerStatus = ShowTimerStatus.paused;
       _controlsVisible = true;
+      _isHoldingReset = false;
     });
+    _resetProgressController.reset();
   }
 
   void _resumeShowTime() {
-    if (_timerStatus != ShowTimerStatus.paused) {
-      return;
-    }
-
+    if (_timerStatus != ShowTimerStatus.paused) return;
+    _controlHideTimer?.cancel();
     setState(() {
       _currentRunStartedAt = DateTime.now();
       _timerStatus = ShowTimerStatus.running;
       _controlsVisible = true;
+      _isHoldingReset = false;
     });
-
+    _resetProgressController.reset();
     _scheduleControlHide();
   }
 
   void _resetShowTime() {
     _controlHideTimer?.cancel();
-
+    if (!mounted) return;
     setState(() {
       _timerStatus = ShowTimerStatus.idle;
       _currentRunStartedAt = null;
@@ -342,79 +269,52 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
       _controlsVisible = true;
       _isHoldingReset = false;
     });
-
     _resetProgressController.reset();
   }
 
-  // ---------------------------------------------------------------------------
-  // v0.15 操作ボタンの自動非表示
-  // ---------------------------------------------------------------------------
-
   void _showControlsTemporarily() {
-    if (_timerStatus != ShowTimerStatus.running || _isEditingTitle) {
-      return;
-    }
-
+    if (_timerStatus != ShowTimerStatus.running || _isEditingTitle) return;
     if (!_controlsVisible && mounted) {
-      setState(() {
-        _controlsVisible = true;
-      });
+      setState(() => _controlsVisible = true);
     }
-
     _scheduleControlHide();
   }
 
   void _scheduleControlHide() {
     _controlHideTimer?.cancel();
-
-    if (_timerStatus != ShowTimerStatus.running || _isEditingTitle) {
-      return;
-    }
-
+    if (_timerStatus != ShowTimerStatus.running || _isEditingTitle) return;
     _controlHideTimer = Timer(_controlHideDelay, () {
       if (!mounted ||
           _timerStatus != ShowTimerStatus.running ||
-          _isEditingTitle) {
+          _isEditingTitle)
         return;
-      }
-
-      setState(() {
-        _controlsVisible = false;
-      });
+      setState(() => _controlsVisible = false);
     });
   }
 
-  void _handlePointerActivity() {
-    if (_timerStatus == ShowTimerStatus.running) {
+  void _queuePointerActivity() {
+    if (_pointerUpdateQueued) return;
+    _pointerUpdateQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _pointerUpdateQueued = false;
+      if (!mounted || _timerStatus != ShowTimerStatus.running) return;
       _showControlsTemporarily();
-    }
+    });
   }
-
-  // ---------------------------------------------------------------------------
-  // RESET長押し
-  // ---------------------------------------------------------------------------
 
   void _startResetHold() {
-    if (_timerStatus != ShowTimerStatus.paused) {
-      return;
-    }
-
-    setState(() {
-      _isHoldingReset = true;
-    });
-
+    if (_timerStatus != ShowTimerStatus.paused) return;
+    setState(() => _isHoldingReset = true);
     _resetProgressController.forward(from: 0);
   }
 
   void _cancelResetHold() {
-    if (!_isHoldingReset && _resetProgressController.value == 0) {
-      return;
-    }
-
-    setState(() {
+    if (!_isHoldingReset && _resetProgressController.value == 0) return;
+    if (mounted) {
+      setState(() => _isHoldingReset = false);
+    } else {
       _isHoldingReset = false;
-    });
-
+    }
     _resetProgressController.animateBack(
       0,
       duration: const Duration(milliseconds: 160),
@@ -422,63 +322,39 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
   }
 
   void _completeResetHold() {
-    if (!_isHoldingReset) {
-      return;
-    }
-
-    _resetShowTime();
+    if (!_isHoldingReset) return;
+    _isHoldingReset = false;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _resetShowTime();
+    });
   }
 
-  // ---------------------------------------------------------------------------
-  // 設定
-  // ---------------------------------------------------------------------------
-
   Future<void> _toggleAlwaysOnTop() async {
-    if (!isDesktopPlatform) {
-      return;
-    }
-
+    if (!isDesktopPlatform) return;
     final newValue = !_isAlwaysOnTop;
-
     await windowManager.setAlwaysOnTop(newValue);
     await _preferences.setBool(_alwaysOnTopKey, newValue);
-
-    if (!mounted) {
-      return;
-    }
-
-    setState(() {
-      _isAlwaysOnTop = newValue;
-    });
+    if (!mounted) return;
+    setState(() => _isAlwaysOnTop = newValue);
   }
 
   Future<void> _setShowCurrentTime(bool value) async {
-    setState(() {
-      _showCurrentTime = value;
-    });
-
+    setState(() => _showCurrentTime = value);
     await _preferences.setBool(_showCurrentTimeKey, value);
   }
 
   Future<void> _setShowCurrentSeconds(bool value) async {
-    setState(() {
-      _showCurrentSeconds = value;
-    });
-
+    setState(() => _showCurrentSeconds = value);
     await _preferences.setBool(_showCurrentSecondsKey, value);
   }
 
   Future<void> _setUse24Hour(bool value) async {
-    setState(() {
-      _use24Hour = value;
-    });
-
+    setState(() => _use24Hour = value);
     await _preferences.setBool(_use24HourKey, value);
   }
 
   void _openSettings() {
     _controlHideTimer?.cancel();
-
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -488,38 +364,23 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
           builder: (context, updateSheet) {
             Future<void> updateShowCurrentTime(bool value) async {
               await _setShowCurrentTime(value);
-
-              if (sheetContext.mounted) {
-                updateSheet(() {});
-              }
+              if (sheetContext.mounted) updateSheet(() {});
             }
 
             Future<void> updateShowCurrentSeconds(bool value) async {
               await _setShowCurrentSeconds(value);
-
-              if (sheetContext.mounted) {
-                updateSheet(() {});
-              }
+              if (sheetContext.mounted) updateSheet(() {});
             }
 
             Future<void> updateUse24Hour(bool value) async {
               await _setUse24Hour(value);
-
-              if (sheetContext.mounted) {
-                updateSheet(() {});
-              }
+              if (sheetContext.mounted) updateSheet(() {});
             }
 
             Future<void> updateAlwaysOnTop(bool value) async {
-              if (!isDesktopPlatform) {
-                return;
-              }
-
+              if (!isDesktopPlatform) return;
               await _toggleAlwaysOnTop();
-
-              if (sheetContext.mounted) {
-                updateSheet(() {});
-              }
+              if (sheetContext.mounted) updateSheet(() {});
             }
 
             return SafeArea(
@@ -557,16 +418,13 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
                         ),
                       ),
                       const SizedBox(height: 18),
-
                       _buildSettingSwitch(
                         title: '現在時刻を表示',
                         subtitle: '公演用ストップウォッチの上に現在時刻を表示します',
                         value: _showCurrentTime,
                         onChanged: updateShowCurrentTime,
                       ),
-
                       const SizedBox(height: 8),
-
                       _buildSettingSwitch(
                         title: '現在時刻に秒を表示',
                         subtitle: 'OFFにすると「17:45」のように表示します',
@@ -574,9 +432,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
                         enabled: _showCurrentTime,
                         onChanged: updateShowCurrentSeconds,
                       ),
-
                       const SizedBox(height: 8),
-
                       _buildSettingSwitch(
                         title: '24時間表記',
                         subtitle: _use24Hour
@@ -586,7 +442,6 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
                         enabled: _showCurrentTime,
                         onChanged: updateUse24Hour,
                       ),
-
                       if (isDesktopPlatform) ...[
                         const Padding(
                           padding: EdgeInsets.symmetric(vertical: 16),
@@ -599,9 +454,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
                           onChanged: updateAlwaysOnTop,
                         ),
                       ],
-
                       const SizedBox(height: 18),
-
                       SizedBox(
                         width: double.infinity,
                         height: 52,
@@ -613,9 +466,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
                               borderRadius: BorderRadius.circular(28),
                             ),
                           ),
-                          onPressed: () {
-                            Navigator.of(sheetContext).pop();
-                          },
+                          onPressed: () => Navigator.of(sheetContext).pop(),
                           child: const Text(
                             '閉じる',
                             style: TextStyle(
@@ -687,7 +538,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
               value: value,
               onChanged: enabled ? onChanged : null,
               activeTrackColor: Colors.green.shade600,
-              activeColor: Colors.white,
+              activeThumbColor: Colors.white,
             ),
           ],
         ),
@@ -695,38 +546,21 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // 表示フォーマット
-  // ---------------------------------------------------------------------------
-
   String _formatCurrentTime(DateTime time) {
     if (_use24Hour) {
       final hours = time.hour.toString().padLeft(2, '0');
       final minutes = time.minute.toString().padLeft(2, '0');
-
-      if (!_showCurrentSeconds) {
-        return '$hours:$minutes';
-      }
-
+      if (!_showCurrentSeconds) return '$hours:$minutes';
       final seconds = time.second.toString().padLeft(2, '0');
       return '$hours:$minutes:$seconds';
     }
 
     final period = time.hour >= 12 ? 'PM' : 'AM';
-
     var displayHour = time.hour % 12;
-
-    if (displayHour == 0) {
-      displayHour = 12;
-    }
-
+    if (displayHour == 0) displayHour = 12;
     final hours = displayHour.toString().padLeft(2, '0');
     final minutes = time.minute.toString().padLeft(2, '0');
-
-    if (!_showCurrentSeconds) {
-      return '$hours:$minutes $period';
-    }
-
+    if (!_showCurrentSeconds) return '$hours:$minutes $period';
     final seconds = time.second.toString().padLeft(2, '0');
     return '$hours:$minutes:$seconds $period';
   }
@@ -735,22 +569,17 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
     final totalHours = duration.inHours;
     final minutes = duration.inMinutes.remainder(60);
     final seconds = duration.inSeconds.remainder(60);
-
-    final hoursText = totalHours.toString().padLeft(2, '0');
-    final minutesText = minutes.toString().padLeft(2, '0');
-    final secondsText = seconds.toString().padLeft(2, '0');
-
-    return '$hoursText:$minutesText:$secondsText';
+    return '${totalHours.toString().padLeft(2, '0')}:'
+        '${minutes.toString().padLeft(2, '0')}:'
+        '${seconds.toString().padLeft(2, '0')}';
   }
 
   Color get _showTimeColor {
     switch (_timerStatus) {
       case ShowTimerStatus.idle:
         return Colors.white;
-
       case ShowTimerStatus.running:
         return const Color(0xFF69F0AE);
-
       case ShowTimerStatus.paused:
         return const Color(0xFFFFC107);
     }
@@ -759,10 +588,6 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
   double _clamp(double value, double minimum, double maximum) {
     return value.clamp(minimum, maximum).toDouble();
   }
-
-  // ---------------------------------------------------------------------------
-  // 上部アイコン
-  // ---------------------------------------------------------------------------
 
   Widget _buildTopRightControls() {
     return Row(
@@ -795,10 +620,6 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // 公演タイトル
-  // ---------------------------------------------------------------------------
-
   Widget _buildShowTitle({
     required double fontSize,
     required double availableWidth,
@@ -807,7 +628,6 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
       return ConstrainedBox(
         constraints: BoxConstraints(maxWidth: availableWidth),
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Expanded(
               child: TextField(
@@ -830,7 +650,6 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
                   hintStyle: TextStyle(
                     color: Colors.white38,
                     fontSize: fontSize * 0.76,
-                    fontWeight: FontWeight.w400,
                   ),
                   counterText: '',
                   contentPadding: const EdgeInsets.symmetric(
@@ -849,9 +668,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
                     ),
                   ),
                 ),
-                onSubmitted: (_) {
-                  unawaited(_saveShowTitle());
-                },
+                onSubmitted: (_) => unawaited(_saveShowTitle()),
               ),
             ),
             const SizedBox(width: 6),
@@ -917,17 +734,12 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // RESET背景充填ボタン
-  // ---------------------------------------------------------------------------
-
   Widget _buildHoldResetButton({
     required double width,
     required double height,
     required double fontSize,
   }) {
     final radius = BorderRadius.circular(height / 2);
-
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTapDown: (_) => _startResetHold(),
@@ -937,31 +749,24 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
         animation: _resetProgressController,
         builder: (context, child) {
           final progress = _resetProgressController.value;
-
-          return ClipRRect(
-            borderRadius: radius,
-            child: Stack(
-              children: [
-                Container(
-                  width: width,
-                  height: height,
-                  color: Colors.red.shade800,
-                ),
-
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: FractionallySizedBox(
-                    widthFactor: progress,
-                    child: Container(
-                      width: width,
-                      height: height,
-                      color: Colors.redAccent.shade200,
+          return SizedBox(
+            width: width,
+            height: height,
+            child: ClipRRect(
+              borderRadius: radius,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  ColoredBox(color: Colors.red.shade800),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: FractionallySizedBox(
+                      widthFactor: progress,
+                      heightFactor: 1,
+                      child: ColoredBox(color: Colors.redAccent.shade200),
                     ),
                   ),
-                ),
-
-                Positioned.fill(
-                  child: Container(
+                  DecoratedBox(
                     decoration: BoxDecoration(
                       borderRadius: radius,
                       border: Border.all(
@@ -972,10 +777,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
                       ),
                     ),
                   ),
-                ),
-
-                Positioned.fill(
-                  child: Center(
+                  Center(
                     child: Text(
                       _isHoldingReset ? 'HOLD' : 'RESET',
                       style: TextStyle(
@@ -985,18 +787,14 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
                       ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           );
         },
       ),
     );
   }
-
-  // ---------------------------------------------------------------------------
-  // 操作ボタン
-  // ---------------------------------------------------------------------------
 
   Widget _buildMainControl({
     required double width,
@@ -1005,120 +803,121 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
   }) {
     switch (_timerStatus) {
       case ShowTimerStatus.idle:
-        return AnimatedSwitcher(
-          duration: const Duration(milliseconds: 200),
-          child: SizedBox(
-            key: const ValueKey('idle-controls'),
-            width: width,
-            height: height,
-            child: ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green,
-                foregroundColor: Colors.white,
-                padding: EdgeInsets.zero,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(height / 2),
-                ),
+        return SizedBox(
+          key: const ValueKey('idle-controls'),
+          width: width,
+          height: height,
+          child: ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+              foregroundColor: Colors.white,
+              padding: EdgeInsets.zero,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(height / 2),
               ),
-              onPressed: _startShowTime,
-              child: Text(
-                'START',
-                style: TextStyle(
-                  fontSize: fontSize,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+            ),
+            onPressed: _startShowTime,
+            child: Text(
+              'START',
+              style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w600),
             ),
           ),
         );
 
       case ShowTimerStatus.running:
-        return AnimatedSize(
-          duration: const Duration(milliseconds: 260),
-          curve: Curves.easeOutCubic,
-          alignment: Alignment.topCenter,
-          child: _controlsVisible
-              ? AnimatedOpacity(
-                  key: const ValueKey('running-controls-visible'),
-                  duration: const Duration(milliseconds: 220),
-                  opacity: 1,
-                  child: SizedBox(
-                    width: width,
-                    height: height,
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFFFC107),
-                        foregroundColor: Colors.black,
-                        padding: EdgeInsets.zero,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(height / 2),
-                        ),
-                      ),
-                      onPressed: _pauseShowTime,
-                      child: Text(
-                        'PAUSE',
-                        style: TextStyle(
-                          fontSize: fontSize,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                  ),
-                )
-              : const SizedBox(
-                  key: ValueKey('running-controls-hidden'),
-                  width: 1,
-                  height: 1,
-                ),
+        return SizedBox(
+          key: const ValueKey('running-controls'),
+          width: width,
+          height: height,
+          child: ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.amber,
+              foregroundColor: Colors.black,
+              padding: EdgeInsets.zero,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(height / 2),
+              ),
+            ),
+            onPressed: _pauseShowTime,
+            child: Text(
+              'PAUSE',
+              style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w700),
+            ),
+          ),
         );
 
       case ShowTimerStatus.paused:
-        final smallButtonWidth = width * 0.72;
-
-        return AnimatedSwitcher(
-          duration: const Duration(milliseconds: 200),
-          child: Wrap(
-            key: const ValueKey('paused-controls'),
-            alignment: WrapAlignment.center,
-            spacing: 12,
-            runSpacing: 10,
-            children: [
-              SizedBox(
-                width: smallButtonWidth,
-                height: height,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    foregroundColor: Colors.white,
-                    padding: EdgeInsets.zero,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(height / 2),
-                    ),
+        final availableButtonWidth = (width - 12) / 2;
+        return Row(
+          key: const ValueKey('paused-controls'),
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: availableButtonWidth,
+              height: height,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  foregroundColor: Colors.white,
+                  padding: EdgeInsets.zero,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(height / 2),
                   ),
-                  onPressed: _resumeShowTime,
-                  child: Text(
-                    'RESUME',
-                    style: TextStyle(
-                      fontSize: fontSize * 0.82,
-                      fontWeight: FontWeight.w700,
-                    ),
+                ),
+                onPressed: _resumeShowTime,
+                child: Text(
+                  'RESUME',
+                  style: TextStyle(
+                    fontSize: fontSize * 0.82,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ),
-              _buildHoldResetButton(
-                width: smallButtonWidth,
-                height: height,
-                fontSize: fontSize,
-              ),
-            ],
-          ),
+            ),
+            const SizedBox(width: 12),
+            _buildHoldResetButton(
+              width: availableButtonWidth,
+              height: height,
+              fontSize: fontSize,
+            ),
+          ],
         );
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // メイン画面
-  // ---------------------------------------------------------------------------
+  Widget _buildAnimatedMainControl({
+    required double width,
+    required double height,
+    required double fontSize,
+  }) {
+    final showControl = _shouldShowMainControl;
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.topCenter,
+      child: SizedBox(
+        height: showControl ? height : 0,
+        child: ClipRect(
+          child: AnimatedOpacity(
+            duration: const Duration(milliseconds: 180),
+            opacity: showControl ? 1 : 0,
+            child: IgnorePointer(
+              ignoring: !showControl,
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 180),
+                child: _buildMainControl(
+                  width: width,
+                  height: height,
+                  fontSize: fontSize,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1127,12 +926,11 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
       resizeToAvoidBottomInset: true,
       body: MouseRegion(
         cursor: SystemMouseCursors.basic,
-        onHover: (_) => _handlePointerActivity(),
-        onEnter: (_) => _handlePointerActivity(),
+        onEnter: (_) => _queuePointerActivity(),
+        onHover: (_) => _queuePointerActivity(),
         child: Listener(
           behavior: HitTestBehavior.translucent,
-          onPointerDown: (_) => _handlePointerActivity(),
-          onPointerMove: (_) => _handlePointerActivity(),
+          onPointerDown: (_) => _queuePointerActivity(),
           child: Stack(
             children: [
               SafeArea(
@@ -1141,18 +939,14 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
                   builder: (context, constraints) {
                     final width = constraints.maxWidth;
                     final height = constraints.maxHeight;
-
                     final keyboardHeight = MediaQuery.viewInsetsOf(
                       context,
                     ).bottom;
-
                     final isKeyboardVisible = keyboardHeight > 0;
-
                     final isNarrow = width < 600;
                     final isCompactHeight = height < 600;
                     final isLargeDesktop = width >= 1100 && height >= 700;
                     final isVeryLargeDesktop = width >= 1400 && height >= 850;
-
                     final shortestSide = width < height ? width : height;
 
                     final horizontalPadding = _clamp(
@@ -1160,9 +954,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
                       12,
                       80,
                     );
-
                     final verticalPadding = isCompactHeight ? 6.0 : 12.0;
-
                     final titleWidth = width - (horizontalPadding * 2);
 
                     final titleFontSize = isCompactHeight
@@ -1184,20 +976,10 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
                         : _clamp(width * 0.10, 56, 122);
 
                     double showTimeScale = 1;
-
-                    if (isLargeDesktop) {
-                      showTimeScale *= 1.10;
-                    }
-
-                    if (isVeryLargeDesktop) {
-                      showTimeScale *= 1.08;
-                    }
-
-                    // v0.15:
-                    // PAUSEボタンが非表示の間は、
-                    // 解放された余白を使ってカウンターを拡大します。
+                    if (isLargeDesktop) showTimeScale *= 1.10;
+                    if (isVeryLargeDesktop) showTimeScale *= 1.08;
                     if (_timerStatus == ShowTimerStatus.running &&
-                        !_controlsVisible) {
+                        !_shouldShowMainControl) {
                       showTimeScale *= isNarrow ? 1.08 : 1.16;
                     }
 
@@ -1218,41 +1000,34 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
                       6,
                       26,
                     );
-
                     final sectionGap = _clamp(
                       height * (isCompactHeight ? 0.025 : 0.045),
                       10,
                       44,
                     );
-
                     final labelGap = _clamp(height * 0.012, 5, 14);
-
                     final buttonTopGap =
                         _timerStatus == ShowTimerStatus.running &&
-                            !_controlsVisible
+                            !_shouldShowMainControl
                         ? _clamp(height * 0.012, 4, 14)
                         : _clamp(
                             height * (isCompactHeight ? 0.022 : 0.038),
                             9,
                             38,
                           );
-
                     final buttonWidth = isCompactHeight
                         ? _clamp(width * 0.30, 140, 220)
                         : isNarrow
                         ? _clamp(width * 0.55, 170, 240)
                         : _clamp(width * 0.30, 210, 360);
-
                     final buttonHeight = isCompactHeight
                         ? _clamp(height * 0.13, 44, 54)
                         : _clamp(height * 0.085, 50, 82);
-
                     final buttonFontSize = isCompactHeight
                         ? _clamp(shortestSide * 0.048, 16, 21)
                         : isNarrow
                         ? _clamp(width * 0.048, 18, 25)
                         : _clamp(width * 0.026, 21, 34);
-
                     final contentMinHeight = isKeyboardVisible
                         ? 0.0
                         : height - (verticalPadding * 2);
@@ -1284,9 +1059,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
                                 fontSize: titleFontSize,
                                 availableWidth: titleWidth,
                               ),
-
                               SizedBox(height: titleGap),
-
                               AnimatedSize(
                                 duration: const Duration(milliseconds: 220),
                                 curve: Curves.easeOutCubic,
@@ -1327,7 +1100,6 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
                                       )
                                     : const SizedBox.shrink(),
                               ),
-
                               Text(
                                 'SHOW TIME',
                                 style: TextStyle(
@@ -1335,9 +1107,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
                                   fontSize: labelFontSize,
                                 ),
                               ),
-
                               SizedBox(height: labelGap),
-
                               AnimatedContainer(
                                 duration: const Duration(milliseconds: 260),
                                 curve: Curves.easeOutCubic,
@@ -1347,7 +1117,6 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
                                   fit: BoxFit.scaleDown,
                                   child: AnimatedDefaultTextStyle(
                                     duration: const Duration(milliseconds: 180),
-                                    curve: Curves.easeOut,
                                     style: TextStyle(
                                       color: _showTimeColor,
                                       fontSize: showTimeFontSize,
@@ -1363,19 +1132,16 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
                                   ),
                                 ),
                               ),
-
                               AnimatedContainer(
                                 duration: const Duration(milliseconds: 260),
                                 curve: Curves.easeOutCubic,
                                 height: buttonTopGap,
                               ),
-
-                              _buildMainControl(
+                              _buildAnimatedMainControl(
                                 width: buttonWidth,
                                 height: buttonHeight,
                                 fontSize: buttonFontSize,
                               ),
-
                               const SizedBox(height: 8),
                             ],
                           ),
@@ -1385,7 +1151,6 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
                   },
                 ),
               ),
-
               SafeArea(
                 child: Align(
                   alignment: Alignment.topRight,
