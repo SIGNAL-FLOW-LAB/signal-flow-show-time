@@ -3,6 +3,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 void main() {
   runApp(const ShowTimeApp());
@@ -38,6 +39,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
   final FocusNode _titleFocusNode = FocusNode();
 
   late final Timer _screenTimer;
+  late final AppLifecycleListener _lifecycleListener;
 
   DateTime _currentTime = DateTime.now();
 
@@ -53,6 +55,13 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
   @override
   void initState() {
     super.initState();
+
+    _lifecycleListener = AppLifecycleListener(
+      onResume: _handleAppResume,
+      onShow: _handleAppResume,
+    );
+
+    unawaited(WakelockPlus.enable());
 
     _loadShowTitle();
 
@@ -75,11 +84,33 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
     });
   }
 
+  void _handleAppResume() {
+    final now = DateTime.now();
+
+    if (mounted) {
+      setState(() {
+        _currentTime = now;
+
+        if (_timerStatus == ShowTimerStatus.running &&
+            _currentRunStartedAt != null) {
+          _showElapsed =
+              _completedRunTime + now.difference(_currentRunStartedAt!);
+        }
+      });
+    }
+
+    unawaited(WakelockPlus.enable());
+  }
+
   @override
   void dispose() {
     _screenTimer.cancel();
+    _lifecycleListener.dispose();
     _titleController.dispose();
     _titleFocusNode.dispose();
+
+    unawaited(WakelockPlus.disable());
+
     super.dispose();
   }
 
