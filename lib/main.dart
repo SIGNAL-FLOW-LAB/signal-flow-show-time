@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -32,18 +31,10 @@ class ShowTimeApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return const MaterialApp(
       title: 'SIGNAL FLOW Show Time',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        brightness: Brightness.dark,
-        scaffoldBackgroundColor: Colors.black,
-        colorScheme: const ColorScheme.dark(
-          primary: Color(0xFF69F0AE),
-          surface: Color(0xFF151515),
-        ),
-      ),
-      home: const ShowTimeScreen(),
+      home: ShowTimeScreen(),
     );
   }
 }
@@ -57,12 +48,16 @@ class ShowTimeScreen extends StatefulWidget {
   State<ShowTimeScreen> createState() => _ShowTimeScreenState();
 }
 
-class _ShowTimeScreenState extends State<ShowTimeScreen> {
+class _ShowTimeScreenState extends State<ShowTimeScreen>
+    with TickerProviderStateMixin {
   static const String _showTitleKey = 'show_title';
   static const String _alwaysOnTopKey = 'always_on_top';
   static const String _showCurrentTimeKey = 'show_current_time';
-  static const String _showCurrentTimeSecondsKey = 'show_current_time_seconds';
-  static const String _use24HourClockKey = 'use_24_hour_clock';
+  static const String _showCurrentSecondsKey = 'show_current_seconds';
+  static const String _use24HourKey = 'use_24_hour';
+
+  static const Duration _controlHideDelay = Duration(milliseconds: 2500);
+  static const Duration _resetHoldDuration = Duration(milliseconds: 1200);
 
   final SharedPreferencesAsync _preferences = SharedPreferencesAsync();
   final TextEditingController _titleController = TextEditingController();
@@ -70,6 +65,9 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
 
   late final Timer _screenTimer;
   late final AppLifecycleListener _lifecycleListener;
+  late final AnimationController _resetProgressController;
+
+  Timer? _controlHideTimer;
 
   DateTime _currentTime = DateTime.now();
 
@@ -80,25 +78,30 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
   Duration _showElapsed = Duration.zero;
 
   String _showTitle = '';
-
   bool _isEditingTitle = false;
+
   bool _isAlwaysOnTop = false;
   bool _showCurrentTime = true;
-  bool _showCurrentTimeSeconds = true;
-  bool _use24HourClock = true;
+  bool _showCurrentSeconds = true;
+  bool _use24Hour = true;
 
-  static const Duration _resetHoldDuration = Duration(milliseconds: 1200);
-
-  Timer? _resetHoldTimer;
-  Timer? _resetProgressTimer;
-
-  double _resetProgress = 0.0;
+  bool _controlsVisible = true;
   bool _isHoldingReset = false;
-  DateTime? _resetHoldStartedAt;
 
   @override
   void initState() {
     super.initState();
+
+    _resetProgressController = AnimationController(
+      vsync: this,
+      duration: _resetHoldDuration,
+    );
+
+    _resetProgressController.addStatusListener((status) {
+      if (status == AnimationStatus.completed && _isHoldingReset) {
+        _completeResetHold();
+      }
+    });
 
     _lifecycleListener = AppLifecycleListener(
       onResume: _handleAppResume,
@@ -107,9 +110,9 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
 
     _enableWakelock();
 
-    unawaited(_loadSettings());
+    unawaited(_loadSavedSettings());
 
-    _screenTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
+    _screenTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
       final now = DateTime.now();
 
       if (!mounted) {
@@ -128,24 +131,22 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
     });
   }
 
-  Future<void> _loadSettings() async {
+  Future<void> _loadSavedSettings() async {
     final savedTitle = await _preferences.getString(_showTitleKey) ?? '';
 
-    final showCurrentTime =
+    final savedAlwaysOnTop =
+        await _preferences.getBool(_alwaysOnTopKey) ?? false;
+
+    final savedShowCurrentTime =
         await _preferences.getBool(_showCurrentTimeKey) ?? true;
 
-    final showCurrentTimeSeconds =
-        await _preferences.getBool(_showCurrentTimeSecondsKey) ?? true;
+    final savedShowCurrentSeconds =
+        await _preferences.getBool(_showCurrentSecondsKey) ?? true;
 
-    final use24HourClock =
-        await _preferences.getBool(_use24HourClockKey) ?? true;
-
-    bool alwaysOnTop = false;
+    final savedUse24Hour = await _preferences.getBool(_use24HourKey) ?? true;
 
     if (isDesktopPlatform) {
-      alwaysOnTop = await _preferences.getBool(_alwaysOnTopKey) ?? false;
-
-      await windowManager.setAlwaysOnTop(alwaysOnTop);
+      await windowManager.setAlwaysOnTop(savedAlwaysOnTop);
     }
 
     if (!mounted) {
@@ -156,57 +157,16 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
       _showTitle = savedTitle.trim();
       _titleController.text = _showTitle;
 
-      _showCurrentTime = showCurrentTime;
-      _showCurrentTimeSeconds = showCurrentTimeSeconds;
-      _use24HourClock = use24HourClock;
-      _isAlwaysOnTop = alwaysOnTop;
+      _isAlwaysOnTop = savedAlwaysOnTop;
+      _showCurrentTime = savedShowCurrentTime;
+      _showCurrentSeconds = savedShowCurrentSeconds;
+      _use24Hour = savedUse24Hour;
     });
-  }
-
-  Future<void> _toggleAlwaysOnTop() async {
-    if (!isDesktopPlatform) {
-      return;
-    }
-
-    final newValue = !_isAlwaysOnTop;
-
-    await windowManager.setAlwaysOnTop(newValue);
-    await _preferences.setBool(_alwaysOnTopKey, newValue);
-
-    if (!mounted) {
-      return;
-    }
-
-    setState(() {
-      _isAlwaysOnTop = newValue;
-    });
-  }
-
-  Future<void> _setShowCurrentTime(bool value) async {
-    setState(() {
-      _showCurrentTime = value;
-    });
-
-    await _preferences.setBool(_showCurrentTimeKey, value);
-  }
-
-  Future<void> _setShowCurrentTimeSeconds(bool value) async {
-    setState(() {
-      _showCurrentTimeSeconds = value;
-    });
-
-    await _preferences.setBool(_showCurrentTimeSecondsKey, value);
-  }
-
-  Future<void> _setUse24HourClock(bool value) async {
-    setState(() {
-      _use24HourClock = value;
-    });
-
-    await _preferences.setBool(_use24HourClockKey, value);
   }
 
   void _enableWakelock() {
+    // Web版でのブラウザ依存エラーを避けるため、
+    // WebではWakelockを使用しません。
     if (kIsWeb) {
       return;
     }
@@ -238,15 +198,20 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
     }
 
     _enableWakelock();
+
+    if (_timerStatus == ShowTimerStatus.running) {
+      _showControlsTemporarily();
+    }
   }
 
   @override
   void dispose() {
     _screenTimer.cancel();
-    _resetHoldTimer?.cancel();
-    _resetProgressTimer?.cancel();
+    _controlHideTimer?.cancel();
 
+    _resetProgressController.dispose();
     _lifecycleListener.dispose();
+
     _titleController.dispose();
     _titleFocusNode.dispose();
 
@@ -255,11 +220,18 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
     super.dispose();
   }
 
+  // ---------------------------------------------------------------------------
+  // タイトル
+  // ---------------------------------------------------------------------------
+
   void _beginTitleEditing() {
+    _controlHideTimer?.cancel();
+
     _titleController.text = _showTitle;
 
     setState(() {
       _isEditingTitle = true;
+      _controlsVisible = true;
     });
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -291,6 +263,10 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
     } else {
       await _preferences.setString(_showTitleKey, newTitle);
     }
+
+    if (_timerStatus == ShowTimerStatus.running) {
+      _showControlsTemporarily();
+    }
   }
 
   void _cancelTitleEditing() {
@@ -300,7 +276,15 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
     setState(() {
       _isEditingTitle = false;
     });
+
+    if (_timerStatus == ShowTimerStatus.running) {
+      _showControlsTemporarily();
+    }
   }
+
+  // ---------------------------------------------------------------------------
+  // ストップウォッチ
+  // ---------------------------------------------------------------------------
 
   void _startShowTime() {
     setState(() {
@@ -308,7 +292,10 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
       _showElapsed = Duration.zero;
       _currentRunStartedAt = DateTime.now();
       _timerStatus = ShowTimerStatus.running;
+      _controlsVisible = true;
     });
+
+    _scheduleControlHide();
   }
 
   void _pauseShowTime() {
@@ -319,11 +306,14 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
 
     final now = DateTime.now();
 
+    _controlHideTimer?.cancel();
+
     setState(() {
       _completedRunTime += now.difference(_currentRunStartedAt!);
       _showElapsed = _completedRunTime;
       _currentRunStartedAt = null;
       _timerStatus = ShowTimerStatus.paused;
+      _controlsVisible = true;
     });
   }
 
@@ -335,111 +325,410 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
     setState(() {
       _currentRunStartedAt = DateTime.now();
       _timerStatus = ShowTimerStatus.running;
+      _controlsVisible = true;
     });
+
+    _scheduleControlHide();
   }
 
   void _resetShowTime() {
+    _controlHideTimer?.cancel();
+
     setState(() {
       _timerStatus = ShowTimerStatus.idle;
       _currentRunStartedAt = null;
       _completedRunTime = Duration.zero;
       _showElapsed = Duration.zero;
+      _controlsVisible = true;
+      _isHoldingReset = false;
     });
+
+    _resetProgressController.reset();
   }
 
-  void _startResetHold() {
-    if (_timerStatus != ShowTimerStatus.paused || _isHoldingReset) {
+  // ---------------------------------------------------------------------------
+  // v0.15 操作ボタンの自動非表示
+  // ---------------------------------------------------------------------------
+
+  void _showControlsTemporarily() {
+    if (_timerStatus != ShowTimerStatus.running || _isEditingTitle) {
       return;
     }
 
-    _resetHoldTimer?.cancel();
-    _resetProgressTimer?.cancel();
+    if (!_controlsVisible && mounted) {
+      setState(() {
+        _controlsVisible = true;
+      });
+    }
 
-    final startedAt = DateTime.now();
+    _scheduleControlHide();
+  }
 
-    setState(() {
-      _isHoldingReset = true;
-      _resetProgress = 0.0;
-      _resetHoldStartedAt = startedAt;
-    });
+  void _scheduleControlHide() {
+    _controlHideTimer?.cancel();
 
-    _resetProgressTimer = Timer.periodic(const Duration(milliseconds: 16), (_) {
-      if (!mounted || !_isHoldingReset || _resetHoldStartedAt == null) {
+    if (_timerStatus != ShowTimerStatus.running || _isEditingTitle) {
+      return;
+    }
+
+    _controlHideTimer = Timer(_controlHideDelay, () {
+      if (!mounted ||
+          _timerStatus != ShowTimerStatus.running ||
+          _isEditingTitle) {
         return;
       }
-
-      final elapsed = DateTime.now().difference(_resetHoldStartedAt!);
-
-      final progress =
-          elapsed.inMicroseconds / _resetHoldDuration.inMicroseconds;
 
       setState(() {
-        _resetProgress = progress.clamp(0.0, 1.0);
+        _controlsVisible = false;
       });
-    });
-
-    _resetHoldTimer = Timer(_resetHoldDuration, () {
-      if (!mounted || !_isHoldingReset) {
-        return;
-      }
-
-      _finishResetHold();
     });
   }
 
+  void _handlePointerActivity() {
+    if (_timerStatus == ShowTimerStatus.running) {
+      _showControlsTemporarily();
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // RESET長押し
+  // ---------------------------------------------------------------------------
+
+  void _startResetHold() {
+    if (_timerStatus != ShowTimerStatus.paused) {
+      return;
+    }
+
+    setState(() {
+      _isHoldingReset = true;
+    });
+
+    _resetProgressController.forward(from: 0);
+  }
+
   void _cancelResetHold() {
-    _resetHoldTimer?.cancel();
-    _resetProgressTimer?.cancel();
+    if (!_isHoldingReset && _resetProgressController.value == 0) {
+      return;
+    }
+
+    setState(() {
+      _isHoldingReset = false;
+    });
+
+    _resetProgressController.animateBack(
+      0,
+      duration: const Duration(milliseconds: 160),
+    );
+  }
+
+  void _completeResetHold() {
+    if (!_isHoldingReset) {
+      return;
+    }
+
+    _resetShowTime();
+  }
+
+  // ---------------------------------------------------------------------------
+  // 設定
+  // ---------------------------------------------------------------------------
+
+  Future<void> _toggleAlwaysOnTop() async {
+    if (!isDesktopPlatform) {
+      return;
+    }
+
+    final newValue = !_isAlwaysOnTop;
+
+    await windowManager.setAlwaysOnTop(newValue);
+    await _preferences.setBool(_alwaysOnTopKey, newValue);
 
     if (!mounted) {
       return;
     }
 
     setState(() {
-      _isHoldingReset = false;
-      _resetProgress = 0.0;
-      _resetHoldStartedAt = null;
+      _isAlwaysOnTop = newValue;
     });
   }
 
-  void _finishResetHold() {
-    _resetHoldTimer?.cancel();
-    _resetProgressTimer?.cancel();
-
+  Future<void> _setShowCurrentTime(bool value) async {
     setState(() {
-      _isHoldingReset = false;
-      _resetProgress = 0.0;
-      _resetHoldStartedAt = null;
+      _showCurrentTime = value;
+    });
 
-      _timerStatus = ShowTimerStatus.idle;
-      _currentRunStartedAt = null;
-      _completedRunTime = Duration.zero;
-      _showElapsed = Duration.zero;
+    await _preferences.setBool(_showCurrentTimeKey, value);
+  }
+
+  Future<void> _setShowCurrentSeconds(bool value) async {
+    setState(() {
+      _showCurrentSeconds = value;
+    });
+
+    await _preferences.setBool(_showCurrentSecondsKey, value);
+  }
+
+  Future<void> _setUse24Hour(bool value) async {
+    setState(() {
+      _use24Hour = value;
+    });
+
+    await _preferences.setBool(_use24HourKey, value);
+  }
+
+  void _openSettings() {
+    _controlHideTimer?.cancel();
+
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, updateSheet) {
+            Future<void> updateShowCurrentTime(bool value) async {
+              await _setShowCurrentTime(value);
+
+              if (sheetContext.mounted) {
+                updateSheet(() {});
+              }
+            }
+
+            Future<void> updateShowCurrentSeconds(bool value) async {
+              await _setShowCurrentSeconds(value);
+
+              if (sheetContext.mounted) {
+                updateSheet(() {});
+              }
+            }
+
+            Future<void> updateUse24Hour(bool value) async {
+              await _setUse24Hour(value);
+
+              if (sheetContext.mounted) {
+                updateSheet(() {});
+              }
+            }
+
+            Future<void> updateAlwaysOnTop(bool value) async {
+              if (!isDesktopPlatform) {
+                return;
+              }
+
+              await _toggleAlwaysOnTop();
+
+              if (sheetContext.mounted) {
+                updateSheet(() {});
+              }
+            }
+
+            return SafeArea(
+              child: Container(
+                constraints: const BoxConstraints(
+                  maxWidth: 620,
+                  maxHeight: 650,
+                ),
+                margin: const EdgeInsets.all(12),
+                padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF171717),
+                  borderRadius: BorderRadius.circular(26),
+                  border: Border.all(color: Colors.white12),
+                ),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 34,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.white38,
+                          borderRadius: BorderRadius.circular(99),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      const Text(
+                        '表示設定',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 22,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+
+                      _buildSettingSwitch(
+                        title: '現在時刻を表示',
+                        subtitle: '公演用ストップウォッチの上に現在時刻を表示します',
+                        value: _showCurrentTime,
+                        onChanged: updateShowCurrentTime,
+                      ),
+
+                      const SizedBox(height: 8),
+
+                      _buildSettingSwitch(
+                        title: '現在時刻に秒を表示',
+                        subtitle: 'OFFにすると「17:45」のように表示します',
+                        value: _showCurrentSeconds,
+                        enabled: _showCurrentTime,
+                        onChanged: updateShowCurrentSeconds,
+                      ),
+
+                      const SizedBox(height: 8),
+
+                      _buildSettingSwitch(
+                        title: '24時間表記',
+                        subtitle: _use24Hour
+                            ? '17:45形式で表示します'
+                            : '05:45 PM形式で表示します',
+                        value: _use24Hour,
+                        enabled: _showCurrentTime,
+                        onChanged: updateUse24Hour,
+                      ),
+
+                      if (isDesktopPlatform) ...[
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 16),
+                          child: Divider(color: Colors.white24, height: 1),
+                        ),
+                        _buildSettingSwitch(
+                          title: '常に最前面に表示',
+                          subtitle: 'ほかのアプリを操作してもShow Timeを手前に残します',
+                          value: _isAlwaysOnTop,
+                          onChanged: updateAlwaysOnTop,
+                        ),
+                      ],
+
+                      const SizedBox(height: 18),
+
+                      SizedBox(
+                        width: double.infinity,
+                        height: 52,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF69F0AE),
+                            foregroundColor: Colors.black,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(28),
+                            ),
+                          ),
+                          onPressed: () {
+                            Navigator.of(sheetContext).pop();
+                          },
+                          child: const Text(
+                            '閉じる',
+                            style: TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    ).whenComplete(() {
+      if (_timerStatus == ShowTimerStatus.running) {
+        _showControlsTemporarily();
+      }
     });
   }
+
+  Widget _buildSettingSwitch({
+    required String title,
+    required String subtitle,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+    bool enabled = true,
+  }) {
+    return AnimatedOpacity(
+      duration: const Duration(milliseconds: 160),
+      opacity: enabled ? 1 : 0.38,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFF222222),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      color: Colors.white54,
+                      fontSize: 13,
+                      height: 1.25,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Switch(
+              value: value,
+              onChanged: enabled ? onChanged : null,
+              activeTrackColor: Colors.green.shade600,
+              activeColor: Colors.white,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // 表示フォーマット
+  // ---------------------------------------------------------------------------
 
   String _formatCurrentTime(DateTime time) {
-    var hour = time.hour;
-    var suffix = '';
+    if (_use24Hour) {
+      final hours = time.hour.toString().padLeft(2, '0');
+      final minutes = time.minute.toString().padLeft(2, '0');
 
-    if (!_use24HourClock) {
-      suffix = hour >= 12 ? ' PM' : ' AM';
-      hour %= 12;
-
-      if (hour == 0) {
-        hour = 12;
+      if (!_showCurrentSeconds) {
+        return '$hours:$minutes';
       }
+
+      final seconds = time.second.toString().padLeft(2, '0');
+      return '$hours:$minutes:$seconds';
     }
 
-    final hours = hour.toString().padLeft(2, '0');
+    final period = time.hour >= 12 ? 'PM' : 'AM';
+
+    var displayHour = time.hour % 12;
+
+    if (displayHour == 0) {
+      displayHour = 12;
+    }
+
+    final hours = displayHour.toString().padLeft(2, '0');
     final minutes = time.minute.toString().padLeft(2, '0');
-    final seconds = time.second.toString().padLeft(2, '0');
 
-    if (_showCurrentTimeSeconds) {
-      return '$hours:$minutes:$seconds$suffix';
+    if (!_showCurrentSeconds) {
+      return '$hours:$minutes $period';
     }
 
-    return '$hours:$minutes$suffix';
+    final seconds = time.second.toString().padLeft(2, '0');
+    return '$hours:$minutes:$seconds $period';
   }
 
   String _formatElapsedTime(Duration duration) {
@@ -460,10 +749,10 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
         return Colors.white;
 
       case ShowTimerStatus.running:
-        return Colors.greenAccent;
+        return const Color(0xFF69F0AE);
 
       case ShowTimerStatus.paused:
-        return Colors.amber;
+        return const Color(0xFFFFC107);
     }
   }
 
@@ -471,134 +760,9 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
     return value.clamp(minimum, maximum).toDouble();
   }
 
-  Future<void> _openSettings() async {
-    await showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: const Color(0xFF171717),
-      barrierColor: Colors.black54,
-      useSafeArea: true,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (sheetContext) {
-        return StatefulBuilder(
-          builder: (context, setSheetState) {
-            Future<void> updateShowCurrentTime(bool value) async {
-              setSheetState(() {
-                _showCurrentTime = value;
-              });
-
-              await _setShowCurrentTime(value);
-            }
-
-            Future<void> updateSeconds(bool value) async {
-              setSheetState(() {
-                _showCurrentTimeSeconds = value;
-              });
-
-              await _setShowCurrentTimeSeconds(value);
-            }
-
-            Future<void> updateClockFormat(bool value) async {
-              setSheetState(() {
-                _use24HourClock = value;
-              });
-
-              await _setUse24HourClock(value);
-            }
-
-            Future<void> updateAlwaysOnTop(bool value) async {
-              await _toggleAlwaysOnTop();
-
-              setSheetState(() {});
-            }
-
-            return ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 600),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(18, 0, 18, 24),
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text(
-                        '表示設定',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-
-                      const SizedBox(height: 12),
-
-                      SwitchListTile.adaptive(
-                        value: _showCurrentTime,
-                        activeTrackColor: Colors.green,
-                        title: const Text('現在時刻を表示'),
-                        subtitle: const Text('公演用ストップウォッチの上に現在時刻を表示します'),
-                        onChanged: updateShowCurrentTime,
-                      ),
-
-                      SwitchListTile.adaptive(
-                        value: _showCurrentTimeSeconds,
-                        activeTrackColor: Colors.green,
-                        title: const Text('現在時刻に秒を表示'),
-                        subtitle: const Text('OFFにすると「17:45」のように表示します'),
-                        onChanged: _showCurrentTime ? updateSeconds : null,
-                      ),
-
-                      SwitchListTile.adaptive(
-                        value: _use24HourClock,
-                        activeTrackColor: Colors.green,
-                        title: const Text('24時間表記'),
-                        subtitle: Text(
-                          _use24HourClock
-                              ? '17:45形式で表示します'
-                              : '05:45 PM形式で表示します',
-                        ),
-                        onChanged: _showCurrentTime ? updateClockFormat : null,
-                      ),
-
-                      if (isDesktopPlatform) ...[
-                        const Divider(height: 28),
-
-                        SwitchListTile.adaptive(
-                          value: _isAlwaysOnTop,
-                          activeTrackColor: Colors.green,
-                          title: const Text('常に最前面に表示'),
-                          subtitle: const Text('ほかのアプリを操作してもShow Timeを手前に残します'),
-                          onChanged: updateAlwaysOnTop,
-                        ),
-                      ],
-
-                      const SizedBox(height: 12),
-
-                      SizedBox(
-                        width: double.infinity,
-                        height: 50,
-                        child: FilledButton(
-                          onPressed: () {
-                            Navigator.of(sheetContext).pop();
-                          },
-                          child: const Text(
-                            '閉じる',
-                            style: TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
+  // ---------------------------------------------------------------------------
+  // 上部アイコン
+  // ---------------------------------------------------------------------------
 
   Widget _buildTopRightControls() {
     return Row(
@@ -614,13 +778,12 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
             icon: const Icon(Icons.settings_outlined),
           ),
         ),
-
         if (isDesktopPlatform)
           Tooltip(
             message: _isAlwaysOnTop ? '最前面固定を解除' : '常に最前面に固定',
             child: IconButton(
               onPressed: _toggleAlwaysOnTop,
-              iconSize: 22,
+              iconSize: 23,
               splashRadius: 22,
               color: _isAlwaysOnTop ? const Color(0xFF69F0AE) : Colors.white38,
               icon: Icon(
@@ -631,6 +794,10 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
       ],
     );
   }
+
+  // ---------------------------------------------------------------------------
+  // 公演タイトル
+  // ---------------------------------------------------------------------------
 
   Widget _buildShowTitle({
     required double fontSize,
@@ -648,7 +815,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
                 focusNode: _titleFocusNode,
                 maxLines: 2,
                 minLines: 1,
-                maxLength: 60,
+                maxLength: 80,
                 textAlign: TextAlign.center,
                 textCapitalization: TextCapitalization.sentences,
                 style: TextStyle(
@@ -656,13 +823,13 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
                   fontSize: fontSize,
                   fontWeight: FontWeight.w600,
                   height: 1.2,
-                  letterSpacing: 0.6,
+                  letterSpacing: 0.4,
                 ),
                 decoration: InputDecoration(
                   hintText: '公演名・会場名・開演時刻など',
                   hintStyle: TextStyle(
                     color: Colors.white38,
-                    fontSize: fontSize * 0.78,
+                    fontSize: fontSize * 0.76,
                     fontWeight: FontWeight.w400,
                   ),
                   counterText: '',
@@ -682,21 +849,20 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
                     ),
                   ),
                 ),
-                onSubmitted: (_) => _saveShowTitle(),
+                onSubmitted: (_) {
+                  unawaited(_saveShowTitle());
+                },
               ),
             ),
-
-            const SizedBox(width: 8),
-
+            const SizedBox(width: 6),
             IconButton(
               tooltip: '保存',
               onPressed: _saveShowTitle,
               icon: const Icon(
                 Icons.check_circle_outline,
-                color: Colors.greenAccent,
+                color: Color(0xFF69F0AE),
               ),
             ),
-
             IconButton(
               tooltip: 'キャンセル',
               onPressed: _cancelTitleEditing,
@@ -714,9 +880,9 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
         borderRadius: BorderRadius.circular(10),
         onTap: _beginTitleEditing,
         child: ConstrainedBox(
-          constraints: BoxConstraints(minHeight: 58, maxWidth: availableWidth),
+          constraints: BoxConstraints(minHeight: 48, maxWidth: availableWidth),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -732,14 +898,12 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
                       fontWeight: _showTitle.isEmpty
                           ? FontWeight.w400
                           : FontWeight.w600,
-                      height: 1.2,
-                      letterSpacing: 0.6,
+                      height: 1.18,
+                      letterSpacing: 0.4,
                     ),
                   ),
                 ),
-
                 const SizedBox(width: 8),
-
                 const Icon(
                   Icons.edit_outlined,
                   size: 17,
@@ -753,385 +917,487 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // RESET背景充填ボタン
+  // ---------------------------------------------------------------------------
+
+  Widget _buildHoldResetButton({
+    required double width,
+    required double height,
+    required double fontSize,
+  }) {
+    final radius = BorderRadius.circular(height / 2);
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapDown: (_) => _startResetHold(),
+      onTapUp: (_) => _cancelResetHold(),
+      onTapCancel: _cancelResetHold,
+      child: AnimatedBuilder(
+        animation: _resetProgressController,
+        builder: (context, child) {
+          final progress = _resetProgressController.value;
+
+          return ClipRRect(
+            borderRadius: radius,
+            child: Stack(
+              children: [
+                Container(
+                  width: width,
+                  height: height,
+                  color: Colors.red.shade800,
+                ),
+
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: FractionallySizedBox(
+                    widthFactor: progress,
+                    child: Container(
+                      width: width,
+                      height: height,
+                      color: Colors.redAccent.shade200,
+                    ),
+                  ),
+                ),
+
+                Positioned.fill(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      borderRadius: radius,
+                      border: Border.all(
+                        color: _isHoldingReset
+                            ? Colors.white70
+                            : Colors.transparent,
+                        width: 1.5,
+                      ),
+                    ),
+                  ),
+                ),
+
+                Positioned.fill(
+                  child: Center(
+                    child: Text(
+                      _isHoldingReset ? 'HOLD' : 'RESET',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: fontSize * 0.82,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // 操作ボタン
+  // ---------------------------------------------------------------------------
+
   Widget _buildMainControl({
     required double width,
     required double height,
     required double fontSize,
   }) {
-    late final Widget control;
-
     switch (_timerStatus) {
       case ShowTimerStatus.idle:
-        control = SizedBox(
-          key: const ValueKey('idle-controls'),
-          width: width,
-          height: height,
-          child: ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green,
-              foregroundColor: Colors.white,
-              padding: EdgeInsets.zero,
-            ),
-            onPressed: _startShowTime,
-            child: Text(
-              'START',
-              style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w600),
+        return AnimatedSwitcher(
+          duration: const Duration(milliseconds: 200),
+          child: SizedBox(
+            key: const ValueKey('idle-controls'),
+            width: width,
+            height: height,
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+                padding: EdgeInsets.zero,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(height / 2),
+                ),
+              ),
+              onPressed: _startShowTime,
+              child: Text(
+                'START',
+                style: TextStyle(
+                  fontSize: fontSize,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             ),
           ),
         );
-        break;
 
       case ShowTimerStatus.running:
-        control = SizedBox(
-          key: const ValueKey('running-controls'),
-          width: width,
-          height: height,
-          child: ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.amber,
-              foregroundColor: Colors.black,
-              padding: EdgeInsets.zero,
-            ),
-            onPressed: _pauseShowTime,
-            child: Text(
-              'PAUSE',
-              style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w700),
-            ),
-          ),
+        return AnimatedSize(
+          duration: const Duration(milliseconds: 260),
+          curve: Curves.easeOutCubic,
+          alignment: Alignment.topCenter,
+          child: _controlsVisible
+              ? AnimatedOpacity(
+                  key: const ValueKey('running-controls-visible'),
+                  duration: const Duration(milliseconds: 220),
+                  opacity: 1,
+                  child: SizedBox(
+                    width: width,
+                    height: height,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFFFC107),
+                        foregroundColor: Colors.black,
+                        padding: EdgeInsets.zero,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(height / 2),
+                        ),
+                      ),
+                      onPressed: _pauseShowTime,
+                      child: Text(
+                        'PAUSE',
+                        style: TextStyle(
+                          fontSize: fontSize,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ),
+                )
+              : const SizedBox(
+                  key: ValueKey('running-controls-hidden'),
+                  width: 1,
+                  height: 1,
+                ),
         );
-        break;
 
       case ShowTimerStatus.paused:
         final smallButtonWidth = width * 0.72;
 
-        control = Wrap(
-          key: const ValueKey('paused-controls'),
-          alignment: WrapAlignment.center,
-          spacing: 12,
-          runSpacing: 10,
-          children: [
-            SizedBox(
-              width: smallButtonWidth,
-              height: height,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
-                  foregroundColor: Colors.white,
-                  padding: EdgeInsets.zero,
-                ),
-                onPressed: _resumeShowTime,
-                child: Text(
-                  'RESUME',
-                  style: TextStyle(
-                    fontSize: fontSize * 0.82,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ),
-
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTapDown: (_) => _startResetHold(),
-              onTapUp: (_) => _cancelResetHold(),
-              onTapCancel: _cancelResetHold,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 120),
+        return AnimatedSwitcher(
+          duration: const Duration(milliseconds: 200),
+          child: Wrap(
+            key: const ValueKey('paused-controls'),
+            alignment: WrapAlignment.center,
+            spacing: 12,
+            runSpacing: 10,
+            children: [
+              SizedBox(
                 width: smallButtonWidth,
                 height: height,
-                decoration: BoxDecoration(
-                  color: _isHoldingReset
-                      ? Colors.red.shade900
-                      : Colors.red.shade700,
-                  borderRadius: BorderRadius.circular(30),
-                  border: Border.all(
-                    color: _isHoldingReset
-                        ? Colors.redAccent
-                        : Colors.transparent,
-                    width: 1.5,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                    padding: EdgeInsets.zero,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(height / 2),
+                    ),
+                  ),
+                  onPressed: _resumeShowTime,
+                  child: Text(
+                    'RESUME',
+                    style: TextStyle(
+                      fontSize: fontSize * 0.82,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    Positioned.fill(
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(30),
-                        child: LinearProgressIndicator(
-                          value: _isHoldingReset ? _resetProgress : 0,
-                          backgroundColor: Colors.transparent,
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                            Colors.white.withValues(alpha: 0.16),
-                          ),
-                        ),
-                      ),
-                    ),
-
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        SizedBox(
-                          width: height * 0.46,
-                          height: height * 0.46,
-                          child: CircularProgressIndicator(
-                            value: _isHoldingReset ? _resetProgress : 0,
-                            strokeWidth: 3,
-                            backgroundColor: _isHoldingReset
-                                ? Colors.white24
-                                : Colors.transparent,
-                            valueColor: const AlwaysStoppedAnimation<Color>(
-                              Colors.white,
-                            ),
-                          ),
-                        ),
-
-                        SizedBox(width: height * 0.14),
-
-                        Text(
-                          _isHoldingReset ? 'HOLD' : 'RESET',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: fontSize * 0.82,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
               ),
-            ),
-          ],
+              _buildHoldResetButton(
+                width: smallButtonWidth,
+                height: height,
+                fontSize: fontSize,
+              ),
+            ],
+          ),
         );
-        break;
     }
-
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 180),
-      child: control,
-    );
   }
+
+  // ---------------------------------------------------------------------------
+  // メイン画面
+  // ---------------------------------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
       resizeToAvoidBottomInset: true,
-      body: Stack(
-        children: [
-          SafeArea(
-            minimum: const EdgeInsets.all(8),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final width = constraints.maxWidth;
-                final height = constraints.maxHeight;
+      body: MouseRegion(
+        cursor: SystemMouseCursors.basic,
+        onHover: (_) => _handlePointerActivity(),
+        onEnter: (_) => _handlePointerActivity(),
+        child: Listener(
+          behavior: HitTestBehavior.translucent,
+          onPointerDown: (_) => _handlePointerActivity(),
+          onPointerMove: (_) => _handlePointerActivity(),
+          child: Stack(
+            children: [
+              SafeArea(
+                minimum: const EdgeInsets.all(8),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final width = constraints.maxWidth;
+                    final height = constraints.maxHeight;
 
-                final keyboardHeight = MediaQuery.viewInsetsOf(context).bottom;
+                    final keyboardHeight = MediaQuery.viewInsetsOf(
+                      context,
+                    ).bottom;
 
-                final isKeyboardVisible = keyboardHeight > 0;
-                final isNarrow = width < 600;
-                final isCompactHeight = height < 600;
+                    final isKeyboardVisible = keyboardHeight > 0;
 
-                final shortestSide = width < height ? width : height;
+                    final isNarrow = width < 600;
+                    final isCompactHeight = height < 600;
+                    final isLargeDesktop = width >= 1100 && height >= 700;
+                    final isVeryLargeDesktop = width >= 1400 && height >= 850;
 
-                final horizontalPadding = _clamp(
-                  width * (isNarrow ? 0.045 : 0.06),
-                  12,
-                  64,
-                );
+                    final shortestSide = width < height ? width : height;
 
-                final verticalPadding = isCompactHeight ? 6.0 : 12.0;
+                    final horizontalPadding = _clamp(
+                      width * (isNarrow ? 0.045 : 0.06),
+                      12,
+                      80,
+                    );
 
-                final titleWidth = width - (horizontalPadding * 2);
+                    final verticalPadding = isCompactHeight ? 6.0 : 12.0;
 
-                final titleFontSize = isCompactHeight
-                    ? _clamp(shortestSide * 0.045, 15, 21)
-                    : isNarrow
-                    ? _clamp(width * 0.052, 17, 24)
-                    : _clamp(width * 0.032, 20, 40);
+                    final titleWidth = width - (horizontalPadding * 2);
 
-                final labelFontSize = isCompactHeight
-                    ? _clamp(shortestSide * 0.034, 11, 15)
-                    : isNarrow
-                    ? _clamp(width * 0.036, 12, 17)
-                    : _clamp(width * 0.020, 14, 26);
+                    final titleFontSize = isCompactHeight
+                        ? _clamp(shortestSide * 0.045, 15, 22)
+                        : isNarrow
+                        ? _clamp(width * 0.052, 17, 25)
+                        : _clamp(width * 0.032, 20, 42);
 
-                final currentTimeFontSize = isCompactHeight
-                    ? _clamp(shortestSide * 0.135, 34, 52)
-                    : isNarrow
-                    ? _clamp(width * 0.13, 42, 62)
-                    : _clamp(width * 0.10, 56, 110);
+                    final labelFontSize = isCompactHeight
+                        ? _clamp(shortestSide * 0.034, 11, 16)
+                        : isNarrow
+                        ? _clamp(width * 0.036, 12, 18)
+                        : _clamp(width * 0.020, 14, 28);
 
-                final showTimeFontSize = isCompactHeight
-                    ? _clamp(shortestSide * 0.16, 38, 62)
-                    : isNarrow
-                    ? _clamp(width * 0.16, 48, 76)
-                    : _clamp(width * 0.135, 68, 150);
+                    final currentTimeFontSize = isCompactHeight
+                        ? _clamp(shortestSide * 0.135, 34, 54)
+                        : isNarrow
+                        ? _clamp(width * 0.13, 42, 66)
+                        : _clamp(width * 0.10, 56, 122);
 
-                final titleGap = _clamp(
-                  height * (isCompactHeight ? 0.018 : 0.035),
-                  8,
-                  28,
-                );
+                    double showTimeScale = 1;
 
-                final sectionGap = _clamp(
-                  height * (isCompactHeight ? 0.03 : 0.055),
-                  12,
-                  48,
-                );
+                    if (isLargeDesktop) {
+                      showTimeScale *= 1.10;
+                    }
 
-                final labelGap = _clamp(height * 0.014, 6, 14);
+                    if (isVeryLargeDesktop) {
+                      showTimeScale *= 1.08;
+                    }
 
-                final buttonTopGap = _clamp(
-                  height * (isCompactHeight ? 0.025 : 0.045),
-                  10,
-                  42,
-                );
+                    // v0.15:
+                    // PAUSEボタンが非表示の間は、
+                    // 解放された余白を使ってカウンターを拡大します。
+                    if (_timerStatus == ShowTimerStatus.running &&
+                        !_controlsVisible) {
+                      showTimeScale *= isNarrow ? 1.08 : 1.16;
+                    }
 
-                final buttonWidth = isCompactHeight
-                    ? _clamp(width * 0.30, 140, 210)
-                    : isNarrow
-                    ? _clamp(width * 0.55, 170, 230)
-                    : _clamp(width * 0.30, 210, 340);
+                    final baseShowTimeFontSize = isCompactHeight
+                        ? _clamp(shortestSide * 0.16, 38, 66)
+                        : isNarrow
+                        ? _clamp(width * 0.16, 48, 82)
+                        : _clamp(width * 0.135, 68, 165);
 
-                final buttonHeight = isCompactHeight
-                    ? _clamp(height * 0.13, 44, 52)
-                    : _clamp(height * 0.085, 50, 78);
+                    final showTimeFontSize = _clamp(
+                      baseShowTimeFontSize * showTimeScale,
+                      38,
+                      isVeryLargeDesktop ? 220 : 190,
+                    );
 
-                final buttonFontSize = isCompactHeight
-                    ? _clamp(shortestSide * 0.048, 16, 20)
-                    : isNarrow
-                    ? _clamp(width * 0.048, 18, 24)
-                    : _clamp(width * 0.026, 21, 32);
+                    final titleGap = _clamp(
+                      height * (isCompactHeight ? 0.014 : 0.028),
+                      6,
+                      26,
+                    );
 
-                final contentMinHeight = isKeyboardVisible
-                    ? 0.0
-                    : height - (verticalPadding * 2);
+                    final sectionGap = _clamp(
+                      height * (isCompactHeight ? 0.025 : 0.045),
+                      10,
+                      44,
+                    );
 
-                return AnimatedPadding(
-                  duration: const Duration(milliseconds: 180),
-                  curve: Curves.easeOut,
-                  padding: EdgeInsets.only(
-                    left: horizontalPadding,
-                    right: horizontalPadding,
-                    top: verticalPadding,
-                    bottom: verticalPadding,
-                  ),
-                  child: SingleChildScrollView(
-                    keyboardDismissBehavior:
-                        ScrollViewKeyboardDismissBehavior.onDrag,
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(
-                        minHeight: contentMinHeight < 0 ? 0 : contentMinHeight,
+                    final labelGap = _clamp(height * 0.012, 5, 14);
+
+                    final buttonTopGap =
+                        _timerStatus == ShowTimerStatus.running &&
+                            !_controlsVisible
+                        ? _clamp(height * 0.012, 4, 14)
+                        : _clamp(
+                            height * (isCompactHeight ? 0.022 : 0.038),
+                            9,
+                            38,
+                          );
+
+                    final buttonWidth = isCompactHeight
+                        ? _clamp(width * 0.30, 140, 220)
+                        : isNarrow
+                        ? _clamp(width * 0.55, 170, 240)
+                        : _clamp(width * 0.30, 210, 360);
+
+                    final buttonHeight = isCompactHeight
+                        ? _clamp(height * 0.13, 44, 54)
+                        : _clamp(height * 0.085, 50, 82);
+
+                    final buttonFontSize = isCompactHeight
+                        ? _clamp(shortestSide * 0.048, 16, 21)
+                        : isNarrow
+                        ? _clamp(width * 0.048, 18, 25)
+                        : _clamp(width * 0.026, 21, 34);
+
+                    final contentMinHeight = isKeyboardVisible
+                        ? 0.0
+                        : height - (verticalPadding * 2);
+
+                    return AnimatedPadding(
+                      duration: const Duration(milliseconds: 220),
+                      curve: Curves.easeOutCubic,
+                      padding: EdgeInsets.only(
+                        left: horizontalPadding,
+                        right: horizontalPadding,
+                        top: verticalPadding,
+                        bottom: verticalPadding,
                       ),
-                      child: Column(
-                        mainAxisAlignment: isKeyboardVisible
-                            ? MainAxisAlignment.start
-                            : MainAxisAlignment.center,
-                        children: [
-                          _buildShowTitle(
-                            fontSize: titleFontSize,
-                            availableWidth: titleWidth,
+                      child: SingleChildScrollView(
+                        keyboardDismissBehavior:
+                            ScrollViewKeyboardDismissBehavior.onDrag,
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            minHeight: contentMinHeight < 0
+                                ? 0
+                                : contentMinHeight,
                           ),
-
-                          SizedBox(height: titleGap),
-
-                          if (_showCurrentTime) ...[
-                            Text(
-                              'CURRENT TIME',
-                              style: TextStyle(
-                                color: Colors.white70,
-                                fontSize: labelFontSize,
+                          child: Column(
+                            mainAxisAlignment: isKeyboardVisible
+                                ? MainAxisAlignment.start
+                                : MainAxisAlignment.center,
+                            children: [
+                              _buildShowTitle(
+                                fontSize: titleFontSize,
+                                availableWidth: titleWidth,
                               ),
-                            ),
 
-                            SizedBox(height: labelGap),
+                              SizedBox(height: titleGap),
 
-                            SizedBox(
-                              width: double.infinity,
-                              height: currentTimeFontSize * 1.25,
-                              child: FittedBox(
-                                fit: BoxFit.scaleDown,
-                                child: Text(
-                                  _formatCurrentTime(_currentTime),
-                                  maxLines: 1,
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: currentTimeFontSize,
-                                    fontWeight: FontWeight.bold,
-                                    fontFeatures: const [
-                                      FontFeature.tabularFigures(),
-                                    ],
+                              AnimatedSize(
+                                duration: const Duration(milliseconds: 220),
+                                curve: Curves.easeOutCubic,
+                                child: _showCurrentTime
+                                    ? Column(
+                                        children: [
+                                          Text(
+                                            'CURRENT TIME',
+                                            style: TextStyle(
+                                              color: Colors.white70,
+                                              fontSize: labelFontSize,
+                                            ),
+                                          ),
+                                          SizedBox(height: labelGap),
+                                          SizedBox(
+                                            width: double.infinity,
+                                            height: currentTimeFontSize * 1.25,
+                                            child: FittedBox(
+                                              fit: BoxFit.scaleDown,
+                                              child: Text(
+                                                _formatCurrentTime(
+                                                  _currentTime,
+                                                ),
+                                                maxLines: 1,
+                                                style: TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: currentTimeFontSize,
+                                                  fontWeight: FontWeight.bold,
+                                                  fontFeatures: const [
+                                                    FontFeature.tabularFigures(),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                          SizedBox(height: sectionGap),
+                                        ],
+                                      )
+                                    : const SizedBox.shrink(),
+                              ),
+
+                              Text(
+                                'SHOW TIME',
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: labelFontSize,
+                                ),
+                              ),
+
+                              SizedBox(height: labelGap),
+
+                              AnimatedContainer(
+                                duration: const Duration(milliseconds: 260),
+                                curve: Curves.easeOutCubic,
+                                width: double.infinity,
+                                height: showTimeFontSize * 1.24,
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: AnimatedDefaultTextStyle(
+                                    duration: const Duration(milliseconds: 180),
+                                    curve: Curves.easeOut,
+                                    style: TextStyle(
+                                      color: _showTimeColor,
+                                      fontSize: showTimeFontSize,
+                                      fontWeight: FontWeight.bold,
+                                      fontFeatures: const [
+                                        FontFeature.tabularFigures(),
+                                      ],
+                                    ),
+                                    child: Text(
+                                      _formatElapsedTime(_showElapsed),
+                                      maxLines: 1,
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
 
-                            SizedBox(height: sectionGap),
-                          ],
-
-                          Text(
-                            'SHOW TIME',
-                            style: TextStyle(
-                              color: Colors.white70,
-                              fontSize: labelFontSize,
-                            ),
-                          ),
-
-                          SizedBox(height: labelGap),
-
-                          SizedBox(
-                            width: double.infinity,
-                            height: showTimeFontSize * 1.25,
-                            child: FittedBox(
-                              fit: BoxFit.scaleDown,
-                              child: AnimatedDefaultTextStyle(
-                                duration: const Duration(milliseconds: 180),
-                                curve: Curves.easeOut,
-                                style: TextStyle(
-                                  color: _showTimeColor,
-                                  fontSize: showTimeFontSize,
-                                  fontWeight: FontWeight.bold,
-                                  fontFeatures: const [
-                                    FontFeature.tabularFigures(),
-                                  ],
-                                ),
-                                child: Text(
-                                  _formatElapsedTime(_showElapsed),
-                                  maxLines: 1,
-                                ),
+                              AnimatedContainer(
+                                duration: const Duration(milliseconds: 260),
+                                curve: Curves.easeOutCubic,
+                                height: buttonTopGap,
                               ),
-                            ),
+
+                              _buildMainControl(
+                                width: buttonWidth,
+                                height: buttonHeight,
+                                fontSize: buttonFontSize,
+                              ),
+
+                              const SizedBox(height: 8),
+                            ],
                           ),
-
-                          SizedBox(height: buttonTopGap),
-
-                          _buildMainControl(
-                            width: buttonWidth,
-                            height: buttonHeight,
-                            fontSize: buttonFontSize,
-                          ),
-
-                          const SizedBox(height: 8),
-                        ],
+                        ),
                       ),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-
-          SafeArea(
-            child: Align(
-              alignment: Alignment.topRight,
-              child: Padding(
-                padding: const EdgeInsets.all(10),
-                child: _buildTopRightControls(),
+                    );
+                  },
+                ),
               ),
-            ),
+
+              SafeArea(
+                child: Align(
+                  alignment: Alignment.topRight,
+                  child: Padding(
+                    padding: const EdgeInsets.all(10),
+                    child: _buildTopRightControls(),
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
