@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   runApp(const ShowTimeApp());
@@ -30,6 +31,12 @@ class ShowTimeScreen extends StatefulWidget {
 }
 
 class _ShowTimeScreenState extends State<ShowTimeScreen> {
+  static const String _showTitleKey = 'show_title';
+
+  final SharedPreferencesAsync _preferences = SharedPreferencesAsync();
+  final TextEditingController _titleController = TextEditingController();
+  final FocusNode _titleFocusNode = FocusNode();
+
   late final Timer _screenTimer;
 
   DateTime _currentTime = DateTime.now();
@@ -40,12 +47,21 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
   Duration _completedRunTime = Duration.zero;
   Duration _showElapsed = Duration.zero;
 
+  String _showTitle = '';
+  bool _isEditingTitle = false;
+
   @override
   void initState() {
     super.initState();
 
+    _loadShowTitle();
+
     _screenTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
       final now = DateTime.now();
+
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
         _currentTime = now;
@@ -62,7 +78,69 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
   @override
   void dispose() {
     _screenTimer.cancel();
+    _titleController.dispose();
+    _titleFocusNode.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadShowTitle() async {
+    final savedTitle = await _preferences.getString(_showTitleKey) ?? '';
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _showTitle = savedTitle.trim();
+      _titleController.text = _showTitle;
+    });
+  }
+
+  void _beginTitleEditing() {
+    _titleController.text = _showTitle;
+
+    setState(() {
+      _isEditingTitle = true;
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+
+      _titleFocusNode.requestFocus();
+
+      _titleController.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: _titleController.text.length,
+      );
+    });
+  }
+
+  Future<void> _saveShowTitle() async {
+    final newTitle = _titleController.text.trim();
+
+    setState(() {
+      _showTitle = newTitle;
+      _isEditingTitle = false;
+    });
+
+    _titleFocusNode.unfocus();
+
+    if (newTitle.isEmpty) {
+      await _preferences.remove(_showTitleKey);
+    } else {
+      await _preferences.setString(_showTitleKey, newTitle);
+    }
+  }
+
+  void _cancelTitleEditing() {
+    _titleController.text = _showTitle;
+    _titleFocusNode.unfocus();
+
+    setState(() {
+      _isEditingTitle = false;
+    });
   }
 
   void _startShowTime() {
@@ -130,28 +208,6 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
     return '$hoursText:$minutesText:$secondsText';
   }
 
-  String get _statusText {
-    switch (_timerStatus) {
-      case ShowTimerStatus.idle:
-        return 'READY';
-      case ShowTimerStatus.running:
-        return 'RUNNING';
-      case ShowTimerStatus.paused:
-        return 'PAUSED';
-    }
-  }
-
-  Color get _statusColor {
-    switch (_timerStatus) {
-      case ShowTimerStatus.idle:
-        return Colors.green;
-      case ShowTimerStatus.running:
-        return Colors.greenAccent;
-      case ShowTimerStatus.paused:
-        return Colors.amber;
-    }
-  }
-
   Color get _showTimeColor {
     switch (_timerStatus) {
       case ShowTimerStatus.idle:
@@ -167,46 +223,118 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
     return value.clamp(minimum, maximum).toDouble();
   }
 
-  Widget _buildStatusIndicator({required double fontSize}) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 180),
-      curve: Curves.easeOut,
-      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 6),
-      decoration: BoxDecoration(
-        color: _statusColor.withValues(alpha: 0.13),
-        borderRadius: BorderRadius.circular(30),
-        border: Border.all(
-          color: _statusColor.withValues(alpha: 0.7),
-          width: 1,
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(
-              color: _statusColor,
-              shape: BoxShape.circle,
-            ),
-          ),
-          const SizedBox(width: 8),
-          AnimatedSwitcher(
-            duration: const Duration(milliseconds: 160),
-            child: Text(
-              _statusText,
-              key: ValueKey(_timerStatus),
-              style: TextStyle(
-                color: _statusColor,
-                fontSize: fontSize,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 1.2,
+  Widget _buildShowTitle({
+    required double fontSize,
+    required double availableWidth,
+  }) {
+    if (_isEditingTitle) {
+      return ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: availableWidth),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _titleController,
+                focusNode: _titleFocusNode,
+                maxLines: 2,
+                minLines: 1,
+                maxLength: 60,
+                textAlign: TextAlign.center,
+                textCapitalization: TextCapitalization.sentences,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: fontSize,
+                  fontWeight: FontWeight.w600,
+                  height: 1.2,
+                  letterSpacing: 0.6,
+                ),
+                decoration: InputDecoration(
+                  hintText: '公演名・会場名・開演時刻など',
+                  hintStyle: TextStyle(
+                    color: Colors.white38,
+                    fontSize: fontSize * 0.78,
+                    fontWeight: FontWeight.w400,
+                  ),
+                  counterText: '',
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: Colors.white30),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(
+                      color: Colors.white70,
+                      width: 1.5,
+                    ),
+                  ),
+                ),
+                onSubmitted: (_) => _saveShowTitle(),
               ),
             ),
+            const SizedBox(width: 8),
+            IconButton(
+              tooltip: '保存',
+              onPressed: _saveShowTitle,
+              icon: const Icon(
+                Icons.check_circle_outline,
+                color: Colors.greenAccent,
+              ),
+            ),
+            IconButton(
+              tooltip: 'キャンセル',
+              onPressed: _cancelTitleEditing,
+              icon: const Icon(Icons.close, color: Colors.white54),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Semantics(
+      button: true,
+      label: _showTitle.isEmpty ? '公演タイトルを入力' : '公演タイトルを編集',
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: _beginTitleEditing,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: 58, maxWidth: availableWidth),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: Text(
+                    _showTitle.isEmpty ? '公演タイトルを入力' : _showTitle,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: _showTitle.isEmpty ? Colors.white38 : Colors.white,
+                      fontSize: _showTitle.isEmpty ? fontSize * 0.72 : fontSize,
+                      fontWeight: _showTitle.isEmpty
+                          ? FontWeight.w400
+                          : FontWeight.w600,
+                      height: 1.2,
+                      letterSpacing: 0.6,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Icon(
+                  Icons.edit_outlined,
+                  size: 17,
+                  color: Colors.white30,
+                ),
+              ],
+            ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -313,17 +441,6 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
 
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 180),
-      switchInCurve: Curves.easeOut,
-      switchOutCurve: Curves.easeIn,
-      transitionBuilder: (child, animation) {
-        return FadeTransition(
-          opacity: animation,
-          child: ScaleTransition(
-            scale: Tween<double>(begin: 0.97, end: 1).animate(animation),
-            child: child,
-          ),
-        );
-      },
       child: control,
     );
   }
@@ -341,25 +458,23 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
 
             final horizontalPadding = _clamp(width * 0.06, 16, 64);
 
-            final brandFontSize = _clamp(shortestSide * 0.045, 15, 22);
+            final titleFontSize = _clamp(shortestSide * 0.05, 18, 28);
 
-            final statusFontSize = _clamp(shortestSide * 0.025, 10, 13);
+            final titleWidth = _clamp(width * 0.82, 300, 760);
 
             final labelFontSize = _clamp(shortestSide * 0.036, 13, 18);
 
             final currentTimeFontSize = _clamp(shortestSide * 0.115, 34, 56);
 
-            final showTimeFontSize = _clamp(shortestSide * 0.125, 36, 60);
+            final showTimeFontSize = _clamp(shortestSide * 0.135, 38, 68);
 
-            final brandStatusGap = _clamp(height * 0.025, 10, 18);
+            final titleGap = _clamp(height * 0.035, 14, 28);
 
-            final largeGap = _clamp(height * 0.035, 14, 30);
-
-            final sectionGap = _clamp(height * 0.06, 22, 52);
+            final sectionGap = _clamp(height * 0.055, 20, 48);
 
             final labelGap = _clamp(height * 0.018, 8, 16);
 
-            final buttonTopGap = _clamp(height * 0.05, 18, 45);
+            final buttonTopGap = _clamp(height * 0.045, 18, 42);
 
             final buttonWidth = _clamp(width * 0.38, 160, 220);
 
@@ -376,18 +491,11 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text(
-                      'SIGNAL FLOW',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: brandFontSize,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 3,
-                      ),
+                    _buildShowTitle(
+                      fontSize: titleFontSize,
+                      availableWidth: titleWidth,
                     ),
-                    SizedBox(height: brandStatusGap),
-                    _buildStatusIndicator(fontSize: statusFontSize),
-                    SizedBox(height: largeGap),
+                    SizedBox(height: titleGap),
                     Text(
                       'CURRENT TIME',
                       style: TextStyle(
@@ -429,7 +537,6 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
                         fit: BoxFit.scaleDown,
                         child: AnimatedDefaultTextStyle(
                           duration: const Duration(milliseconds: 180),
-                          curve: Curves.easeOut,
                           style: TextStyle(
                             color: _showTimeColor,
                             fontSize: showTimeFontSize,
