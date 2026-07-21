@@ -87,6 +87,15 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
   bool _showCurrentTimeSeconds = true;
   bool _use24HourClock = true;
 
+  static const Duration _resetHoldDuration = Duration(milliseconds: 1200);
+
+  Timer? _resetHoldTimer;
+  Timer? _resetProgressTimer;
+
+  double _resetProgress = 0.0;
+  bool _isHoldingReset = false;
+  DateTime? _resetHoldStartedAt;
+
   @override
   void initState() {
     super.initState();
@@ -234,6 +243,9 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
   @override
   void dispose() {
     _screenTimer.cancel();
+    _resetHoldTimer?.cancel();
+    _resetProgressTimer?.cancel();
+
     _lifecycleListener.dispose();
     _titleController.dispose();
     _titleFocusNode.dispose();
@@ -328,6 +340,77 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
 
   void _resetShowTime() {
     setState(() {
+      _timerStatus = ShowTimerStatus.idle;
+      _currentRunStartedAt = null;
+      _completedRunTime = Duration.zero;
+      _showElapsed = Duration.zero;
+    });
+  }
+
+  void _startResetHold() {
+    if (_timerStatus != ShowTimerStatus.paused || _isHoldingReset) {
+      return;
+    }
+
+    _resetHoldTimer?.cancel();
+    _resetProgressTimer?.cancel();
+
+    final startedAt = DateTime.now();
+
+    setState(() {
+      _isHoldingReset = true;
+      _resetProgress = 0.0;
+      _resetHoldStartedAt = startedAt;
+    });
+
+    _resetProgressTimer = Timer.periodic(const Duration(milliseconds: 16), (_) {
+      if (!mounted || !_isHoldingReset || _resetHoldStartedAt == null) {
+        return;
+      }
+
+      final elapsed = DateTime.now().difference(_resetHoldStartedAt!);
+
+      final progress =
+          elapsed.inMicroseconds / _resetHoldDuration.inMicroseconds;
+
+      setState(() {
+        _resetProgress = progress.clamp(0.0, 1.0);
+      });
+    });
+
+    _resetHoldTimer = Timer(_resetHoldDuration, () {
+      if (!mounted || !_isHoldingReset) {
+        return;
+      }
+
+      _finishResetHold();
+    });
+  }
+
+  void _cancelResetHold() {
+    _resetHoldTimer?.cancel();
+    _resetProgressTimer?.cancel();
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isHoldingReset = false;
+      _resetProgress = 0.0;
+      _resetHoldStartedAt = null;
+    });
+  }
+
+  void _finishResetHold() {
+    _resetHoldTimer?.cancel();
+    _resetProgressTimer?.cancel();
+
+    setState(() {
+      _isHoldingReset = false;
+      _resetProgress = 0.0;
+      _resetHoldStartedAt = null;
+
       _timerStatus = ShowTimerStatus.idle;
       _currentRunStartedAt = null;
       _completedRunTime = Duration.zero;
@@ -747,25 +830,74 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
               ),
             ),
 
-            Material(
-              color: Colors.red.shade700,
-              borderRadius: BorderRadius.circular(30),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(30),
-                onLongPress: _resetShowTime,
-                child: SizedBox(
-                  width: smallButtonWidth,
-                  height: height,
-                  child: Center(
-                    child: Text(
-                      'RESET',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: fontSize * 0.82,
-                        fontWeight: FontWeight.w600,
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTapDown: (_) => _startResetHold(),
+              onTapUp: (_) => _cancelResetHold(),
+              onTapCancel: _cancelResetHold,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 120),
+                width: smallButtonWidth,
+                height: height,
+                decoration: BoxDecoration(
+                  color: _isHoldingReset
+                      ? Colors.red.shade900
+                      : Colors.red.shade700,
+                  borderRadius: BorderRadius.circular(30),
+                  border: Border.all(
+                    color: _isHoldingReset
+                        ? Colors.redAccent
+                        : Colors.transparent,
+                    width: 1.5,
+                  ),
+                ),
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Positioned.fill(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(30),
+                        child: LinearProgressIndicator(
+                          value: _isHoldingReset ? _resetProgress : 0,
+                          backgroundColor: Colors.transparent,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            Colors.white.withValues(alpha: 0.16),
+                          ),
+                        ),
                       ),
                     ),
-                  ),
+
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        SizedBox(
+                          width: height * 0.46,
+                          height: height * 0.46,
+                          child: CircularProgressIndicator(
+                            value: _isHoldingReset ? _resetProgress : 0,
+                            strokeWidth: 3,
+                            backgroundColor: _isHoldingReset
+                                ? Colors.white24
+                                : Colors.transparent,
+                            valueColor: const AlwaysStoppedAnimation<Color>(
+                              Colors.white,
+                            ),
+                          ),
+                        ),
+
+                        SizedBox(width: height * 0.14),
+
+                        Text(
+                          _isHoldingReset ? 'HOLD' : 'RESET',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: fontSize * 0.82,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
             ),
