@@ -93,79 +93,147 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
     return '$hoursText:$minutesText:$secondsText';
   }
 
+  double _clamp(double value, double minimum, double maximum) {
+    return value.clamp(minimum, maximum).toDouble();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Text(
-                'SIGNAL FLOW',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 3,
-                ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final width = constraints.maxWidth;
+            final height = constraints.maxHeight;
+
+            final shortestSide = width < height ? width : height;
+
+            final horizontalPadding = _clamp(width * 0.06, 16, 64);
+
+            final brandFontSize = _clamp(shortestSide * 0.045, 15, 22);
+
+            final labelFontSize = _clamp(shortestSide * 0.036, 13, 18);
+
+            final currentTimeFontSize = _clamp(shortestSide * 0.115, 34, 56);
+
+            final showTimeFontSize = _clamp(shortestSide * 0.125, 36, 60);
+
+            final largeGap = _clamp(height * 0.075, 22, 60);
+
+            final sectionGap = _clamp(height * 0.085, 26, 70);
+
+            final labelGap = _clamp(height * 0.02, 8, 16);
+
+            final buttonTopGap = _clamp(height * 0.085, 26, 80);
+
+            final buttonWidth = _clamp(width * 0.38, 160, 220);
+
+            final buttonHeight = _clamp(height * 0.09, 48, 60);
+
+            final buttonFontSize = _clamp(shortestSide * 0.048, 18, 24);
+
+            return Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: horizontalPadding,
+                vertical: 12,
               ),
-              const SizedBox(height: 60),
-              const Text(
-                'CURRENT TIME',
-                style: TextStyle(color: Colors.white70, fontSize: 18),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                _formatCurrentTime(_currentTime),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 56,
-                  fontWeight: FontWeight.bold,
-                  fontFeatures: [FontFeature.tabularFigures()],
-                ),
-              ),
-              const SizedBox(height: 70),
-              const Text(
-                'SHOW TIME',
-                style: TextStyle(color: Colors.white70, fontSize: 18),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                _formatElapsedTime(_showElapsed),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 56,
-                  fontWeight: FontWeight.bold,
-                  fontFeatures: [FontFeature.tabularFigures()],
-                ),
-              ),
-              const SizedBox(height: 80),
-              SizedBox(
-                width: 220,
-                height: 60,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _isRunning
-                        ? Colors.grey.shade800
-                        : Colors.green,
-                    foregroundColor: Colors.white,
-                    disabledBackgroundColor: Colors.grey.shade800,
-                    disabledForegroundColor: Colors.white70,
-                  ),
-                  onPressed: _isRunning ? null : _startShowTime,
-                  child: Text(
-                    _isRunning ? 'RUNNING' : 'START',
-                    style: const TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w600,
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      'SIGNAL FLOW',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: brandFontSize,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 3,
+                      ),
                     ),
-                  ),
+                    SizedBox(height: largeGap),
+                    Text(
+                      'CURRENT TIME',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: labelFontSize,
+                      ),
+                    ),
+                    SizedBox(height: labelGap),
+                    SizedBox(
+                      width: double.infinity,
+                      height: currentTimeFontSize * 1.25,
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.center,
+                        child: Text(
+                          _formatCurrentTime(_currentTime),
+                          maxLines: 1,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: currentTimeFontSize,
+                            fontWeight: FontWeight.bold,
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                          ),
+                        ),
+                      ),
+                    ),
+                    SizedBox(height: sectionGap),
+                    Text(
+                      'SHOW TIME',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: labelFontSize,
+                      ),
+                    ),
+                    SizedBox(height: labelGap),
+                    SizedBox(
+                      width: double.infinity,
+                      height: showTimeFontSize * 1.25,
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.center,
+                        child: Text(
+                          _formatElapsedTime(_showElapsed),
+                          maxLines: 1,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: showTimeFontSize,
+                            fontWeight: FontWeight.bold,
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                          ),
+                        ),
+                      ),
+                    ),
+                    SizedBox(height: buttonTopGap),
+                    SizedBox(
+                      width: buttonWidth,
+                      height: buttonHeight,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _isRunning
+                              ? Colors.grey.shade800
+                              : Colors.green,
+                          foregroundColor: Colors.white,
+                          disabledBackgroundColor: Colors.grey.shade800,
+                          disabledForegroundColor: Colors.white70,
+                          padding: EdgeInsets.zero,
+                        ),
+                        onPressed: _isRunning ? null : _startShowTime,
+                        child: Text(
+                          _isRunning ? 'RUNNING' : 'START',
+                          style: TextStyle(
+                            fontSize: buttonFontSize,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ],
-          ),
+            );
+          },
         ),
       ),
     );
