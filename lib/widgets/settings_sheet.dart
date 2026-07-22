@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-enum AppLanguage { japanese, english }
+import '../models/app_language.dart';
 
 typedef AsyncBoolChanged = Future<void> Function(bool value);
 typedef AsyncLanguageChanged = Future<void> Function(AppLanguage value);
@@ -358,7 +358,7 @@ class _SettingSwitch extends StatelessWidget {
               value: value,
               onChanged: enabled ? onChanged : null,
               activeTrackColor: Colors.green.shade600,
-              activeColor: Colors.white,
+              activeThumbColor: Colors.white,
             ),
           ],
         ),

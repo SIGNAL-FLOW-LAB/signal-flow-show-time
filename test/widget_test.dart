@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:show_time/main.dart';
+import 'package:show_time/app.dart';
 
 void main() {
   testWidgets('Show Time app starts successfully', (tester) async {

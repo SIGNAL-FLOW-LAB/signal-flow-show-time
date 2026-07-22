@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
-enum ShowTimerStatus { idle, running, paused }
+import '../models/show_timer_status.dart';
 
 class ShowTimerController extends ChangeNotifier {
   ShowTimerController({this.tickInterval = const Duration(milliseconds: 100)});

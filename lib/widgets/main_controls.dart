@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../controllers/show_timer_controller.dart';
+import '../models/show_timer_status.dart';
 
 class MainControls extends StatelessWidget {
   const MainControls({

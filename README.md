@@ -1,17 +1,21 @@
-# show_time
+# SIGNAL FLOW Show Time
 
-A new Flutter project.
+A simple, cross-platform show timer for stage, live-event, broadcast, presentation, and production teams.
 
-## Getting Started
+## Release
 
-This project is a starting point for a Flutter application.
+Current version: `1.0.0-rc.1`
 
-A few resources to get you started if this is your first Flutter project:
+## Core controls
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+- Start / Pause / Resume
+- Hold Reset
+- Editable show title
+- Current-time display
+- Japanese / English interface
+- Always on Top on desktop
+- macOS menu shortcuts: Space, Command-Comma, Escape, Command-Q
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## Supported targets
+
+The shared Flutter code is structured for macOS, Windows, iOS, Android, Linux, and Web. Platform-specific release validation is performed separately.
