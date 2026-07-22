@@ -130,9 +130,7 @@ class _HoldResetButtonState extends State<HoldResetButton>
                     decoration: BoxDecoration(
                       borderRadius: radius,
                       border: Border.all(
-                        color: _isHolding
-                            ? Colors.white70
-                            : Colors.transparent,
+                        color: _isHolding ? Colors.white70 : Colors.transparent,
                         width: 1.5,
                       ),
                     ),

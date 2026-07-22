@@ -11,6 +11,7 @@ import '../models/app_language.dart';
 import '../models/show_timer_status.dart';
 import '../platform/platform_support.dart';
 import '../services/settings_service.dart';
+import '../widgets/about_dialog.dart';
 import '../widgets/current_time_display.dart';
 import '../widgets/hold_reset_button.dart';
 import '../widgets/main_controls.dart';
@@ -45,6 +46,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
   String _showTitle = '';
   bool _isEditingTitle = false;
   bool _isSettingsOpen = false;
+  bool _isAboutOpen = false;
 
   bool _isAlwaysOnTop = false;
   bool _showCurrentTime = true;
@@ -60,6 +62,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
     super.initState();
 
     widget.menuController.openSettings = _openSettings;
+    widget.menuController.openAbout = _openAbout;
     widget.menuController.toggleAlwaysOnTop = () {
       unawaited(_toggleAlwaysOnTop());
     };
@@ -146,6 +149,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
     _shortcutFocusNode.dispose();
 
     widget.menuController.openSettings = null;
+    widget.menuController.openAbout = null;
     widget.menuController.toggleAlwaysOnTop = null;
     widget.menuController.primaryAction = null;
     widget.menuController.setLanguage = null;
@@ -265,7 +269,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
   }
 
   void _handlePrimaryShortcut() {
-    if (_isEditingTitle || _isSettingsOpen) {
+    if (_isEditingTitle || _isSettingsOpen || _isAboutOpen) {
       return;
     }
 
@@ -281,7 +285,6 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
         return;
     }
   }
-
 
   // ---------------------------------------------------------------------------
   // 操作ボタンの自動非表示
@@ -399,6 +402,34 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
     widget.menuController.language.value = value;
 
     await _settingsService.saveLanguage(value);
+  }
+
+  void _openAbout() {
+    if (_isAboutOpen || _isSettingsOpen) {
+      return;
+    }
+
+    _controlHideTimer?.cancel();
+    setState(() {
+      _isAboutOpen = true;
+      _controlsVisible = true;
+    });
+
+    showShowTimeAboutDialog(context: context, language: _language).whenComplete(
+      () {
+        if (!mounted) {
+          return;
+        }
+
+        setState(() {
+          _isAboutOpen = false;
+        });
+        _shortcutFocusNode.requestFocus();
+        if (_timerController.status == ShowTimerStatus.running) {
+          _scheduleControlHide();
+        }
+      },
+    );
   }
 
   void _openSettings() {
@@ -520,10 +551,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
       titleFocusNode: _titleFocusNode,
       emptyTitleLabel: _t('公演タイトルを入力', 'Enter Show Title'),
       editTitleLabel: _t('公演タイトルを編集', 'Edit Show Title'),
-      hintText: _t(
-        '公演名・会場名・開演時刻など',
-        'Show name, venue, show time, etc.',
-      ),
+      hintText: _t('公演名・会場名・開演時刻など', 'Show name, venue, show time, etc.'),
       saveLabel: _t('保存', 'Save'),
       cancelLabel: _t('キャンセル', 'Cancel'),
       onBeginEditing: _beginTitleEditing,
@@ -701,10 +729,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
                                     ? Column(
                                         children: [
                                           CurrentTimeDisplay(
-                                            label: _t(
-                                              '現在時刻',
-                                              'CURRENT TIME',
-                                            ),
+                                            label: _t('現在時刻', 'CURRENT TIME'),
                                             showSeconds: _showCurrentSeconds,
                                             use24Hour: _use24Hour,
                                             labelFontSize: labelFontSize,
@@ -790,13 +815,10 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
       bindings: _isEditingTitle
           ? const <ShortcutActivator, VoidCallback>{}
           : <ShortcutActivator, VoidCallback>{
-              const SingleActivator(
-                LogicalKeyboardKey.space,
-              ): _handlePrimaryShortcut,
-              const SingleActivator(
-                LogicalKeyboardKey.comma,
-                meta: true,
-              ): _openSettings,
+              const SingleActivator(LogicalKeyboardKey.space):
+                  _handlePrimaryShortcut,
+              const SingleActivator(LogicalKeyboardKey.comma, meta: true):
+                  _openSettings,
             },
       child: Focus(
         focusNode: _shortcutFocusNode,

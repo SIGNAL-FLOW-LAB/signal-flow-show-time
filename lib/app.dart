@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'controllers/show_time_menu_controller.dart';
+import 'models/app_info.dart';
 import 'models/app_language.dart';
 import 'platform/platform_support.dart';
 import 'screens/show_time_screen.dart';
@@ -28,17 +29,13 @@ class _ShowTimeAppState extends State<ShowTimeApp> {
     super.dispose();
   }
 
-  String _text(
-    AppLanguage language,
-    String japanese,
-    String english,
-  ) {
+  String _text(AppLanguage language, String japanese, String english) {
     return language == AppLanguage.japanese ? japanese : english;
   }
 
   Widget _buildApp() {
     return MaterialApp(
-      title: 'SIGNAL FLOW Show Time',
+      title: AppInfo.appName,
       debugShowCheckedModeBanner: false,
       home: ShowTimeScreen(menuController: _menuController),
     );
@@ -61,26 +58,36 @@ class _ShowTimeAppState extends State<ShowTimeApp> {
             return PlatformMenuBar(
               menus: [
                 PlatformMenu(
-                  label: 'SIGNAL FLOW Show Time',
+                  label: AppInfo.appName,
                   menus: [
                     PlatformMenuItem(
-                      label: _text(language, '設定…', 'Preferences…'),
-                      shortcut: const SingleActivator(
-                        LogicalKeyboardKey.comma,
-                        meta: true,
+                      label: _text(
+                        language,
+                        'SIGNAL FLOW Show Timeについて',
+                        'About SIGNAL FLOW Show Time',
                       ),
                       onSelected: () {
-                        _menuController.openSettings?.call();
+                        _menuController.openAbout?.call();
                       },
                     ),
                     PlatformMenuItemGroup(
                       members: [
-                        PlatformMenu(
-                          label: _text(
-                            language,
-                            '表示言語',
-                            'Display Language',
+                        PlatformMenuItem(
+                          label: _text(language, '設定…', 'Preferences…'),
+                          shortcut: const SingleActivator(
+                            LogicalKeyboardKey.comma,
+                            meta: true,
                           ),
+                          onSelected: () {
+                            _menuController.openSettings?.call();
+                          },
+                        ),
+                      ],
+                    ),
+                    PlatformMenuItemGroup(
+                      members: [
+                        PlatformMenu(
+                          label: _text(language, '表示言語', 'Display Language'),
                           menus: [
                             PlatformMenuItem(
                               label: language == AppLanguage.japanese
@@ -106,16 +113,8 @@ class _ShowTimeAppState extends State<ShowTimeApp> {
                         ),
                         PlatformMenuItem(
                           label: alwaysOnTop
-                              ? _text(
-                                  language,
-                                  '✓ 常に最前面に表示',
-                                  '✓ Always on Top',
-                                )
-                              : _text(
-                                  language,
-                                  '常に最前面に表示',
-                                  'Always on Top',
-                                ),
+                              ? _text(language, '✓ 常に最前面に表示', '✓ Always on Top')
+                              : _text(language, '常に最前面に表示', 'Always on Top'),
                           onSelected: () {
                             _menuController.toggleAlwaysOnTop?.call();
                           },

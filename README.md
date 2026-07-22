@@ -1,21 +1,43 @@
 # SIGNAL FLOW Show Time
 
-A simple, cross-platform show timer for stage, live-event, broadcast, presentation, and production teams.
+A simple show timer for stage, theatre, live-event, broadcast, presentation, and production teams.
 
-## Release
+## Current release candidate
 
-Current version: `1.0.0-rc.1`
+`1.0.0-rc.2`
 
-## Core controls
+## Features
 
-- Start / Pause / Resume
-- Hold Reset
+- Start, pause, and resume with one primary control
+- Hold-to-reset protection
 - Editable show title
-- Current-time display
-- Japanese / English interface
+- Large elapsed-time display
+- Optional current-time display
+- 12-hour and 24-hour clock formats
+- Japanese and English interface
 - Always on Top on desktop
-- macOS menu shortcuts: Space, Command-Comma, Escape, Command-Q
+- Screen wake lock during use
+- macOS menu and keyboard shortcuts
+
+## macOS shortcuts
+
+- `Space`: Start / Pause / Resume
+- `Command + ,`: Preferences
+- `Escape`: Close Preferences or About
+- `Command + Q`: Quit
+
+## Support
+
+Questions and bug reports are accepted through GitHub Issues:
+
+https://github.com/kobayashikantaro/signal-flow-show-time/issues
 
 ## Supported targets
 
-The shared Flutter code is structured for macOS, Windows, iOS, Android, Linux, and Web. Platform-specific release validation is performed separately.
+The shared Flutter project contains targets for macOS, Windows, iOS, Android, Linux, and Web. Release validation is performed separately for each platform. RC2 is validated primarily on macOS.
+
+## License
+
+This project is proprietary software. Use, copying, modification, redistribution, resale, and source-code reuse are governed by the included `LICENSE` file.
+
+Copyright © 2026 SIGNAL FLOW. All rights reserved.
