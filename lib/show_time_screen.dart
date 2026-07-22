@@ -28,11 +28,10 @@ bool get isMacOSPlatform {
   return !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS;
 }
 
-
-
 class ShowTimeMenuController {
-  final ValueNotifier<AppLanguage> language =
-      ValueNotifier<AppLanguage>(AppLanguage.japanese);
+  final ValueNotifier<AppLanguage> language = ValueNotifier<AppLanguage>(
+    AppLanguage.japanese,
+  );
   final ValueNotifier<bool> alwaysOnTop = ValueNotifier<bool>(false);
 
   VoidCallback? openSettings;
@@ -583,10 +582,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
       titleFocusNode: _titleFocusNode,
       emptyTitleLabel: _t('公演タイトルを入力', 'Enter Show Title'),
       editTitleLabel: _t('公演タイトルを編集', 'Edit Show Title'),
-      hintText: _t(
-        '公演名・会場名・開演時刻など',
-        'Show name, venue, show time, etc.',
-      ),
+      hintText: _t('公演名・会場名・開演時刻など', 'Show name, venue, show time, etc.'),
       saveLabel: _t('保存', 'Save'),
       cancelLabel: _t('キャンセル', 'Cancel'),
       onBeginEditing: _beginTitleEditing,
@@ -764,10 +760,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
                                     ? Column(
                                         children: [
                                           CurrentTimeDisplay(
-                                            label: _t(
-                                              '現在時刻',
-                                              'CURRENT TIME',
-                                            ),
+                                            label: _t('現在時刻', 'CURRENT TIME'),
                                             showSeconds: _showCurrentSeconds,
                                             use24Hour: _use24Hour,
                                             labelFontSize: labelFontSize,
@@ -853,13 +846,10 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
       bindings: _isEditingTitle
           ? const <ShortcutActivator, VoidCallback>{}
           : <ShortcutActivator, VoidCallback>{
-              const SingleActivator(
-                LogicalKeyboardKey.space,
-              ): _handlePrimaryShortcut,
-              const SingleActivator(
-                LogicalKeyboardKey.comma,
-                meta: true,
-              ): _openSettings,
+              const SingleActivator(LogicalKeyboardKey.space):
+                  _handlePrimaryShortcut,
+              const SingleActivator(LogicalKeyboardKey.comma, meta: true):
+                  _openSettings,
             },
       child: Focus(
         focusNode: _shortcutFocusNode,
