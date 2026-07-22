@@ -42,3 +42,8 @@ linux/flutter/ephemeral/
 *.tmp
 *.swp
 *.dmg
+
+# macOS release artifacts
+*.dmg
+dmg_source/
+.DS_Store
