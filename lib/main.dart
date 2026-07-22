@@ -147,6 +147,16 @@ class _ShowTimeAppState extends State<ShowTimeApp> {
                         ),
                       ],
                     ),
+                    PlatformMenuItem(
+                      label: language == AppLanguage.japanese
+                          ? 'SIGNAL FLOW Show Timeを終了'
+                          : 'Quit SIGNAL FLOW Show Time',
+                      shortcut: const SingleActivator(
+                        LogicalKeyboardKey.keyQ,
+                        meta: true,
+                      ),
+                      onSelected: SystemNavigator.pop,
+                    ),
                   ],
                 ),
               ],

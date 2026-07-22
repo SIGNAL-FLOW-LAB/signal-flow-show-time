@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:ui' show FontFeature;
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -8,9 +6,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:window_manager/window_manager.dart';
 
+import 'controllers/show_timer_controller.dart';
+import 'widgets/current_time_display.dart';
 import 'widgets/hold_reset_button.dart';
 import 'widgets/main_controls.dart';
 import 'widgets/settings_sheet.dart';
+import 'widgets/show_elapsed_display.dart';
 import 'widgets/show_title.dart';
 
 bool get isDesktopPlatform {
@@ -27,10 +28,11 @@ bool get isMacOSPlatform {
   return !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS;
 }
 
+
+
 class ShowTimeMenuController {
-  final ValueNotifier<AppLanguage> language = ValueNotifier<AppLanguage>(
-    AppLanguage.japanese,
-  );
+  final ValueNotifier<AppLanguage> language =
+      ValueNotifier<AppLanguage>(AppLanguage.japanese);
   final ValueNotifier<bool> alwaysOnTop = ValueNotifier<bool>(false);
 
   VoidCallback? openSettings;
@@ -68,19 +70,12 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
   final FocusNode _titleFocusNode = FocusNode();
   final FocusNode _shortcutFocusNode = FocusNode();
 
-  late final Timer _screenTimer;
+  late final ShowTimerController _timerController;
   late final AppLifecycleListener _lifecycleListener;
 
   Timer? _controlHideTimer;
 
-  DateTime _currentTime = DateTime.now();
   Offset? _lastPointerPosition;
-
-  ShowTimerStatus _timerStatus = ShowTimerStatus.idle;
-
-  DateTime? _currentRunStartedAt;
-  Duration _completedRunTime = Duration.zero;
-  Duration _showElapsed = Duration.zero;
 
   String _showTitle = '';
   bool _isEditingTitle = false;
@@ -108,6 +103,9 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
       unawaited(_setLanguage(value));
     };
 
+    _timerController = ShowTimerController();
+    _timerController.addListener(_handleTimerChanged);
+
     _lifecycleListener = AppLifecycleListener(
       onResume: _handleAppResume,
       onShow: _handleAppResume,
@@ -115,24 +113,6 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
 
     _enableWakelock();
     unawaited(_loadSavedSettings());
-
-    _screenTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
-      final now = DateTime.now();
-
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-        _currentTime = now;
-
-        if (_timerStatus == ShowTimerStatus.running &&
-            _currentRunStartedAt != null) {
-          _showElapsed =
-              _completedRunTime + now.difference(_currentRunStartedAt!);
-        }
-      });
-    });
   }
 
   Future<void> _loadSavedSettings() async {
@@ -187,28 +167,22 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
     unawaited(WakelockPlus.disable());
   }
 
-  void _handleAppResume() {
-    final now = DateTime.now();
-
+  void _handleTimerChanged() {
     if (mounted) {
-      setState(() {
-        _currentTime = now;
-
-        if (_timerStatus == ShowTimerStatus.running &&
-            _currentRunStartedAt != null) {
-          _showElapsed =
-              _completedRunTime + now.difference(_currentRunStartedAt!);
-        }
-      });
+      setState(() {});
     }
+  }
 
+  void _handleAppResume() {
+    _timerController.refreshAfterResume();
     _lastPointerPosition = null;
     _enableWakelock();
   }
 
   @override
   void dispose() {
-    _screenTimer.cancel();
+    _timerController.removeListener(_handleTimerChanged);
+    _timerController.dispose();
     _controlHideTimer?.cancel();
 
     _lifecycleListener.dispose();
@@ -274,7 +248,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
       await _preferences.setString(_showTitleKey, newTitle);
     }
 
-    if (_timerStatus == ShowTimerStatus.running) {
+    if (_timerController.status == ShowTimerStatus.running) {
       _showControlsTemporarily();
     }
   }
@@ -289,7 +263,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
 
     _shortcutFocusNode.requestFocus();
 
-    if (_timerStatus == ShowTimerStatus.running) {
+    if (_timerController.status == ShowTimerStatus.running) {
       _showControlsTemporarily();
     }
   }
@@ -299,62 +273,45 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
   // ---------------------------------------------------------------------------
 
   void _startShowTime() {
+    _timerController.start();
     setState(() {
-      _completedRunTime = Duration.zero;
-      _showElapsed = Duration.zero;
-      _currentRunStartedAt = DateTime.now();
-      _timerStatus = ShowTimerStatus.running;
       _controlsVisible = true;
     });
-
     _scheduleControlHide();
   }
 
   void _pauseShowTime() {
-    if (_timerStatus != ShowTimerStatus.running ||
-        _currentRunStartedAt == null) {
+    if (!_timerController.isRunning) {
       return;
     }
 
-    final now = DateTime.now();
     _controlHideTimer?.cancel();
-
+    _timerController.pause();
     setState(() {
-      _completedRunTime += now.difference(_currentRunStartedAt!);
-      _showElapsed = _completedRunTime;
-      _currentRunStartedAt = null;
-      _timerStatus = ShowTimerStatus.paused;
       _controlsVisible = true;
     });
   }
 
   void _resumeShowTime() {
-    if (_timerStatus != ShowTimerStatus.paused) {
+    if (!_timerController.isPaused) {
       return;
     }
 
+    _timerController.resume();
     setState(() {
-      _currentRunStartedAt = DateTime.now();
-      _timerStatus = ShowTimerStatus.running;
       _controlsVisible = true;
     });
-
     _scheduleControlHide();
   }
 
   void _resetShowTime() {
     _controlHideTimer?.cancel();
-    if (!mounted) {
-      return;
+    _timerController.reset();
+    if (mounted) {
+      setState(() {
+        _controlsVisible = true;
+      });
     }
-
-    setState(() {
-      _timerStatus = ShowTimerStatus.idle;
-      _currentRunStartedAt = null;
-      _completedRunTime = Duration.zero;
-      _showElapsed = Duration.zero;
-      _controlsVisible = true;
-    });
   }
 
   void _handlePrimaryShortcut() {
@@ -362,7 +319,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
       return;
     }
 
-    switch (_timerStatus) {
+    switch (_timerController.status) {
       case ShowTimerStatus.idle:
         _startShowTime();
         return;
@@ -376,7 +333,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
   }
 
   String get _primaryActionLabel {
-    switch (_timerStatus) {
+    switch (_timerController.status) {
       case ShowTimerStatus.idle:
         return 'Start';
       case ShowTimerStatus.running:
@@ -391,7 +348,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
   // ---------------------------------------------------------------------------
 
   void _showControlsTemporarily() {
-    if (_timerStatus != ShowTimerStatus.running || _isEditingTitle) {
+    if (_timerController.status != ShowTimerStatus.running || _isEditingTitle) {
       return;
     }
 
@@ -407,13 +364,13 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
   void _scheduleControlHide() {
     _controlHideTimer?.cancel();
 
-    if (_timerStatus != ShowTimerStatus.running || _isEditingTitle) {
+    if (_timerController.status != ShowTimerStatus.running || _isEditingTitle) {
       return;
     }
 
     _controlHideTimer = Timer(_controlHideDelay, () {
       if (!mounted ||
-          _timerStatus != ShowTimerStatus.running ||
+          _timerController.status != ShowTimerStatus.running ||
           _isEditingTitle) {
         return;
       }
@@ -547,7 +504,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
 
       _shortcutFocusNode.requestFocus();
 
-      if (_timerStatus == ShowTimerStatus.running) {
+      if (_timerController.status == ShowTimerStatus.running) {
         _scheduleControlHide();
       }
     });
@@ -557,51 +514,8 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
   // 表示フォーマット
   // ---------------------------------------------------------------------------
 
-  String _formatCurrentTime(DateTime time) {
-    if (_use24Hour) {
-      final hours = time.hour.toString().padLeft(2, '0');
-      final minutes = time.minute.toString().padLeft(2, '0');
-
-      if (!_showCurrentSeconds) {
-        return '$hours:$minutes';
-      }
-
-      final seconds = time.second.toString().padLeft(2, '0');
-      return '$hours:$minutes:$seconds';
-    }
-
-    final period = time.hour >= 12 ? 'PM' : 'AM';
-    var displayHour = time.hour % 12;
-
-    if (displayHour == 0) {
-      displayHour = 12;
-    }
-
-    final hours = displayHour.toString().padLeft(2, '0');
-    final minutes = time.minute.toString().padLeft(2, '0');
-
-    if (!_showCurrentSeconds) {
-      return '$hours:$minutes $period';
-    }
-
-    final seconds = time.second.toString().padLeft(2, '0');
-    return '$hours:$minutes:$seconds $period';
-  }
-
-  String _formatElapsedTime(Duration duration) {
-    final totalHours = duration.inHours;
-    final minutes = duration.inMinutes.remainder(60);
-    final seconds = duration.inSeconds.remainder(60);
-
-    final hoursText = totalHours.toString().padLeft(2, '0');
-    final minutesText = minutes.toString().padLeft(2, '0');
-    final secondsText = seconds.toString().padLeft(2, '0');
-
-    return '$hoursText:$minutesText:$secondsText';
-  }
-
   Color get _showTimeColor {
-    switch (_timerStatus) {
+    switch (_timerController.status) {
       case ShowTimerStatus.idle:
         return Colors.white;
       case ShowTimerStatus.running:
@@ -669,7 +583,10 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
       titleFocusNode: _titleFocusNode,
       emptyTitleLabel: _t('公演タイトルを入力', 'Enter Show Title'),
       editTitleLabel: _t('公演タイトルを編集', 'Edit Show Title'),
-      hintText: _t('公演名・会場名・開演時刻など', 'Show name, venue, show time, etc.'),
+      hintText: _t(
+        '公演名・会場名・開演時刻など',
+        'Show name, venue, show time, etc.',
+      ),
       saveLabel: _t('保存', 'Save'),
       cancelLabel: _t('キャンセル', 'Cancel'),
       onBeginEditing: _beginTitleEditing,
@@ -846,34 +763,16 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
                                 child: _showCurrentTime
                                     ? Column(
                                         children: [
-                                          Text(
-                                            _t('現在時刻', 'CURRENT TIME'),
-                                            style: TextStyle(
-                                              color: Colors.white70,
-                                              fontSize: labelFontSize,
+                                          CurrentTimeDisplay(
+                                            label: _t(
+                                              '現在時刻',
+                                              'CURRENT TIME',
                                             ),
-                                          ),
-                                          SizedBox(height: labelGap),
-                                          SizedBox(
-                                            width: double.infinity,
-                                            height: currentTimeFontSize * 1.25,
-                                            child: FittedBox(
-                                              fit: BoxFit.scaleDown,
-                                              child: Text(
-                                                _formatCurrentTime(
-                                                  _currentTime,
-                                                ),
-                                                maxLines: 1,
-                                                style: TextStyle(
-                                                  color: Colors.white,
-                                                  fontSize: currentTimeFontSize,
-                                                  fontWeight: FontWeight.bold,
-                                                  fontFeatures: const [
-                                                    FontFeature.tabularFigures(),
-                                                  ],
-                                                ),
-                                              ),
-                                            ),
+                                            showSeconds: _showCurrentSeconds,
+                                            use24Hour: _use24Hour,
+                                            labelFontSize: labelFontSize,
+                                            timeFontSize: currentTimeFontSize,
+                                            labelGap: labelGap,
                                           ),
                                           SizedBox(height: sectionGap),
                                         ],
@@ -891,28 +790,10 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
 
                               SizedBox(height: labelGap),
 
-                              SizedBox(
-                                width: double.infinity,
-                                height: showTimeFontSize * 1.24,
-                                child: FittedBox(
-                                  fit: BoxFit.scaleDown,
-                                  child: AnimatedDefaultTextStyle(
-                                    duration: const Duration(milliseconds: 180),
-                                    curve: Curves.easeOut,
-                                    style: TextStyle(
-                                      color: _showTimeColor,
-                                      fontSize: showTimeFontSize,
-                                      fontWeight: FontWeight.bold,
-                                      fontFeatures: const [
-                                        FontFeature.tabularFigures(),
-                                      ],
-                                    ),
-                                    child: Text(
-                                      _formatElapsedTime(_showElapsed),
-                                      maxLines: 1,
-                                    ),
-                                  ),
-                                ),
+                              ShowElapsedDisplay(
+                                elapsed: _timerController.elapsed,
+                                color: _showTimeColor,
+                                fontSize: showTimeFontSize,
                               ),
 
                               SizedBox(height: buttonTopGap),
@@ -925,7 +806,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
                                 child: AnimatedSwitcher(
                                   duration: const Duration(milliseconds: 180),
                                   child: MainControls(
-                                    status: _timerStatus,
+                                    status: _timerController.status,
                                     controlsVisible: _controlsVisible,
                                     width: buttonWidth,
                                     height: buttonHeight,
@@ -972,10 +853,13 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
       bindings: _isEditingTitle
           ? const <ShortcutActivator, VoidCallback>{}
           : <ShortcutActivator, VoidCallback>{
-              const SingleActivator(LogicalKeyboardKey.space):
-                  _handlePrimaryShortcut,
-              const SingleActivator(LogicalKeyboardKey.comma, meta: true):
-                  _openSettings,
+              const SingleActivator(
+                LogicalKeyboardKey.space,
+              ): _handlePrimaryShortcut,
+              const SingleActivator(
+                LogicalKeyboardKey.comma,
+                meta: true,
+              ): _openSettings,
             },
       child: Focus(
         focusNode: _shortcutFocusNode,

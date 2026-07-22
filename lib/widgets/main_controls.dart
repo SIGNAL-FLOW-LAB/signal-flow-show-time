@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-enum ShowTimerStatus { idle, running, paused }
+import '../controllers/show_timer_controller.dart';
 
 class MainControls extends StatelessWidget {
   const MainControls({
@@ -56,7 +56,10 @@ class MainControls extends StatelessWidget {
             onPressed: onStart,
             child: Text(
               'START',
-              style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                fontSize: fontSize,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         );

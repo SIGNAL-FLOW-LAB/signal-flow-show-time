@@ -116,7 +116,10 @@ class ShowTitle extends StatelessWidget {
         borderRadius: BorderRadius.circular(10),
         onTap: onBeginEditing,
         child: ConstrainedBox(
-          constraints: BoxConstraints(minHeight: 48, maxWidth: availableWidth),
+          constraints: BoxConstraints(
+            minHeight: 48,
+            maxWidth: availableWidth,
+          ),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
             child: Row(
