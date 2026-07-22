@@ -93,131 +93,134 @@ Future<void> showSettingsSheet({
               child: SafeArea(
                 child: Center(
                   child: Container(
-                    constraints: const BoxConstraints(
-                      maxWidth: 620,
-                      maxHeight: 700,
-                    ),
-                    margin: const EdgeInsets.all(12),
-                    padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF171717),
-                      borderRadius: BorderRadius.circular(26),
-                      border: Border.all(color: Colors.white12),
-                    ),
-                    child: SingleChildScrollView(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            width: 34,
-                            height: 4,
-                            decoration: BoxDecoration(
-                              color: Colors.white38,
-                              borderRadius: BorderRadius.circular(99),
+                constraints: const BoxConstraints(
+                  maxWidth: 620,
+                  maxHeight: 700,
+                ),
+                margin: const EdgeInsets.all(12),
+                padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF171717),
+                  borderRadius: BorderRadius.circular(26),
+                  border: Border.all(color: Colors.white12),
+                ),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 34,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.white38,
+                          borderRadius: BorderRadius.circular(99),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      Text(
+                        translate('表示設定', 'Display Settings'),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 22,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      _LanguageSelector(
+                        language: currentLanguage,
+                        translate: translate,
+                        onChanged: updateLanguage,
+                      ),
+                      const SizedBox(height: 12),
+                      _SettingSwitch(
+                        title: translate('現在時刻を表示', 'Show Current Time'),
+                        subtitle: translate(
+                          '公演用ストップウォッチの上に現在時刻を表示します',
+                          'Shows the current time above the show timer.',
+                        ),
+                        value: currentShowCurrentTime,
+                        onChanged: updateShowCurrentTime,
+                      ),
+                      const SizedBox(height: 8),
+                      _SettingSwitch(
+                        title: translate(
+                          '現在時刻に秒を表示',
+                          'Show Current Seconds',
+                        ),
+                        subtitle: translate(
+                          'OFFにすると「17:45」のように表示します',
+                          'When off, the time is shown like “17:45”.',
+                        ),
+                        value: currentShowCurrentSeconds,
+                        enabled: currentShowCurrentTime,
+                        onChanged: updateShowCurrentSeconds,
+                      ),
+                      const SizedBox(height: 8),
+                      _SettingSwitch(
+                        title: translate('24時間表記', '24-Hour Format'),
+                        subtitle: currentUse24Hour
+                            ? translate(
+                                '17:45形式で表示します',
+                                'Displays time in 17:45 format.',
+                              )
+                            : translate(
+                                '05:45 PM形式で表示します',
+                                'Displays time in 05:45 PM format.',
+                              ),
+                        value: currentUse24Hour,
+                        enabled: currentShowCurrentTime,
+                        onChanged: updateUse24Hour,
+                      ),
+                      if (showAlwaysOnTopOption) ...[
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 16),
+                          child: Divider(color: Colors.white24, height: 1),
+                        ),
+                        _SettingSwitch(
+                          title: translate(
+                            '常に最前面に表示',
+                            'Always on Top',
+                          ),
+                          subtitle: translate(
+                            'ほかのアプリを操作してもShow Timeを手前に残します',
+                            'Keeps Show Time above other apps.',
+                          ),
+                          value: currentIsAlwaysOnTop,
+                          onChanged: updateAlwaysOnTop,
+                        ),
+                      ],
+                      const SizedBox(height: 18),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 48,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF69F0AE),
+                            foregroundColor: Colors.black,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(24),
                             ),
                           ),
-                          const SizedBox(height: 20),
-                          Text(
-                            translate('表示設定', 'Display Settings'),
+                          onPressed: () {
+                            Navigator.of(sheetContext).pop();
+                          },
+                          child: Text(
+                            translate('閉じる', 'Close'),
                             style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 22,
+                              fontSize: 16,
                               fontWeight: FontWeight.w700,
                             ),
                           ),
-                          const SizedBox(height: 18),
-                          _LanguageSelector(
-                            language: currentLanguage,
-                            translate: translate,
-                            onChanged: updateLanguage,
-                          ),
-                          const SizedBox(height: 12),
-                          _SettingSwitch(
-                            title: translate('現在時刻を表示', 'Show Current Time'),
-                            subtitle: translate(
-                              '公演用ストップウォッチの上に現在時刻を表示します',
-                              'Shows the current time above the show timer.',
-                            ),
-                            value: currentShowCurrentTime,
-                            onChanged: updateShowCurrentTime,
-                          ),
-                          const SizedBox(height: 8),
-                          _SettingSwitch(
-                            title: translate(
-                              '現在時刻に秒を表示',
-                              'Show Current Seconds',
-                            ),
-                            subtitle: translate(
-                              'OFFにすると「17:45」のように表示します',
-                              'When off, the time is shown like “17:45”.',
-                            ),
-                            value: currentShowCurrentSeconds,
-                            enabled: currentShowCurrentTime,
-                            onChanged: updateShowCurrentSeconds,
-                          ),
-                          const SizedBox(height: 8),
-                          _SettingSwitch(
-                            title: translate('24時間表記', '24-Hour Format'),
-                            subtitle: currentUse24Hour
-                                ? translate(
-                                    '17:45形式で表示します',
-                                    'Displays time in 17:45 format.',
-                                  )
-                                : translate(
-                                    '05:45 PM形式で表示します',
-                                    'Displays time in 05:45 PM format.',
-                                  ),
-                            value: currentUse24Hour,
-                            enabled: currentShowCurrentTime,
-                            onChanged: updateUse24Hour,
-                          ),
-                          if (showAlwaysOnTopOption) ...[
-                            const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 16),
-                              child: Divider(color: Colors.white24, height: 1),
-                            ),
-                            _SettingSwitch(
-                              title: translate('常に最前面に表示', 'Always on Top'),
-                              subtitle: translate(
-                                'ほかのアプリを操作してもShow Timeを手前に残します',
-                                'Keeps Show Time above other apps.',
-                              ),
-                              value: currentIsAlwaysOnTop,
-                              onChanged: updateAlwaysOnTop,
-                            ),
-                          ],
-                          const SizedBox(height: 18),
-                          SizedBox(
-                            width: double.infinity,
-                            height: 48,
-                            child: ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF69F0AE),
-                                foregroundColor: Colors.black,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(24),
-                                ),
-                              ),
-                              onPressed: () {
-                                Navigator.of(sheetContext).pop();
-                              },
-                              child: Text(
-                                translate('閉じる', 'Close'),
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
-                    ),
+                    ],
+                  ),
                   ),
                 ),
               ),
             ),
-          );
+          ),
+        );
         },
       );
     },

@@ -52,7 +52,11 @@ class _ShowTimeAppState extends State<ShowTimeApp> {
     super.dispose();
   }
 
-  String _text(AppLanguage language, String japanese, String english) {
+  String _text(
+    AppLanguage language,
+    String japanese,
+    String english,
+  ) {
     return language == AppLanguage.japanese ? japanese : english;
   }
 
@@ -96,7 +100,11 @@ class _ShowTimeAppState extends State<ShowTimeApp> {
                     PlatformMenuItemGroup(
                       members: [
                         PlatformMenu(
-                          label: _text(language, '表示言語', 'Display Language'),
+                          label: _text(
+                            language,
+                            '表示言語',
+                            'Display Language',
+                          ),
                           menus: [
                             PlatformMenuItem(
                               label: language == AppLanguage.japanese
@@ -122,8 +130,16 @@ class _ShowTimeAppState extends State<ShowTimeApp> {
                         ),
                         PlatformMenuItem(
                           label: alwaysOnTop
-                              ? _text(language, '✓ 常に最前面に表示', '✓ Always on Top')
-                              : _text(language, '常に最前面に表示', 'Always on Top'),
+                              ? _text(
+                                  language,
+                                  '✓ 常に最前面に表示',
+                                  '✓ Always on Top',
+                                )
+                              : _text(
+                                  language,
+                                  '常に最前面に表示',
+                                  'Always on Top',
+                                ),
                           onSelected: () {
                             _menuController.toggleAlwaysOnTop?.call();
                           },

@@ -56,7 +56,10 @@ class MainControls extends StatelessWidget {
             onPressed: onStart,
             child: Text(
               'START',
-              style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                fontSize: fontSize,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         );
