@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:window_manager/window_manager.dart';
 
+import 'widgets/hold_reset_button.dart';
 import 'widgets/main_controls.dart';
 import 'widgets/settings_sheet.dart';
 import 'widgets/show_title.dart';
@@ -33,8 +34,7 @@ class ShowTimeScreen extends StatefulWidget {
   State<ShowTimeScreen> createState() => _ShowTimeScreenState();
 }
 
-class _ShowTimeScreenState extends State<ShowTimeScreen>
-    with TickerProviderStateMixin {
+class _ShowTimeScreenState extends State<ShowTimeScreen> {
   static const String _showTitleKey = 'show_title';
   static const String _alwaysOnTopKey = 'always_on_top';
   static const String _showCurrentTimeKey = 'show_current_time';
@@ -43,7 +43,6 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
   static const String _languageKey = 'display_language';
 
   static const Duration _controlHideDelay = Duration(milliseconds: 2500);
-  static const Duration _resetHoldDuration = Duration(milliseconds: 1200);
 
   final SharedPreferencesAsync _preferences = SharedPreferencesAsync();
   final TextEditingController _titleController = TextEditingController();
@@ -52,7 +51,6 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
 
   late final Timer _screenTimer;
   late final AppLifecycleListener _lifecycleListener;
-  late final AnimationController _resetProgressController;
 
   Timer? _controlHideTimer;
 
@@ -77,26 +75,10 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
   AppLanguage _language = AppLanguage.japanese;
 
   bool _controlsVisible = true;
-  bool _isHoldingReset = false;
 
   @override
   void initState() {
     super.initState();
-
-    _resetProgressController = AnimationController(
-      vsync: this,
-      duration: _resetHoldDuration,
-    );
-
-    _resetProgressController.addStatusListener((status) {
-      if (status == AnimationStatus.completed && _isHoldingReset) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted && _isHoldingReset) {
-            _completeResetHold();
-          }
-        });
-      }
-    });
 
     _lifecycleListener = AppLifecycleListener(
       onResume: _handleAppResume,
@@ -198,7 +180,6 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
     _screenTimer.cancel();
     _controlHideTimer?.cancel();
 
-    _resetProgressController.dispose();
     _lifecycleListener.dispose();
 
     _titleController.dispose();
@@ -327,8 +308,6 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
 
   void _resetShowTime() {
     _controlHideTimer?.cancel();
-    _resetProgressController.stop();
-
     if (!mounted) {
       return;
     }
@@ -339,10 +318,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
       _completedRunTime = Duration.zero;
       _showElapsed = Duration.zero;
       _controlsVisible = true;
-      _isHoldingReset = false;
     });
-
-    _resetProgressController.value = 0;
   }
 
   void _handlePrimaryShortcut() {
@@ -431,47 +407,6 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
     _lastPointerPosition = event.position;
     _showControlsTemporarily();
     _shortcutFocusNode.requestFocus();
-  }
-
-  // ---------------------------------------------------------------------------
-  // RESET長押し
-  // ---------------------------------------------------------------------------
-
-  void _startResetHold() {
-    if (_timerStatus != ShowTimerStatus.paused) {
-      return;
-    }
-
-    setState(() {
-      _isHoldingReset = true;
-    });
-
-    _resetProgressController.forward(from: 0);
-  }
-
-  void _cancelResetHold() {
-    if (!_isHoldingReset && _resetProgressController.value == 0) {
-      return;
-    }
-
-    if (mounted) {
-      setState(() {
-        _isHoldingReset = false;
-      });
-    }
-
-    _resetProgressController.animateBack(
-      0,
-      duration: const Duration(milliseconds: 160),
-    );
-  }
-
-  void _completeResetHold() {
-    if (!_isHoldingReset) {
-      return;
-    }
-
-    _resetShowTime();
   }
 
   // ---------------------------------------------------------------------------
@@ -748,73 +683,6 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
   }
 
   // ---------------------------------------------------------------------------
-  // RESET背景充填ボタン
-  // ---------------------------------------------------------------------------
-
-  Widget _buildHoldResetButton({
-    required double width,
-    required double height,
-    required double fontSize,
-  }) {
-    final radius = BorderRadius.circular(height / 2);
-
-    return SizedBox(
-      width: width,
-      height: height,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTapDown: (_) => _startResetHold(),
-        onTapUp: (_) => _cancelResetHold(),
-        onTapCancel: _cancelResetHold,
-        child: AnimatedBuilder(
-          animation: _resetProgressController,
-          builder: (context, child) {
-            final progress = _resetProgressController.value;
-
-            return ClipRRect(
-              borderRadius: radius,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  ColoredBox(color: Colors.red.shade800),
-                  Positioned(
-                    left: 0,
-                    top: 0,
-                    bottom: 0,
-                    width: width * progress,
-                    child: ColoredBox(color: Colors.redAccent.shade200),
-                  ),
-                  DecoratedBox(
-                    decoration: BoxDecoration(
-                      borderRadius: radius,
-                      border: Border.all(
-                        color: _isHoldingReset
-                            ? Colors.white70
-                            : Colors.transparent,
-                        width: 1.5,
-                      ),
-                    ),
-                  ),
-                  Center(
-                    child: Text(
-                      _isHoldingReset ? 'HOLD' : 'RESET',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: fontSize * 0.82,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        ),
-      ),
-    );
-  }
-
-  // ---------------------------------------------------------------------------
   // 操作ボタン
   // ---------------------------------------------------------------------------
 
@@ -1069,10 +937,11 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
                                     onStart: _startShowTime,
                                     onPause: _pauseShowTime,
                                     onResume: _resumeShowTime,
-                                    resetButton: _buildHoldResetButton(
+                                    resetButton: HoldResetButton(
                                       width: (buttonWidth - 12) / 2,
                                       height: buttonHeight,
                                       fontSize: buttonFontSize,
+                                      onReset: _resetShowTime,
                                     ),
                                   ),
                                 ),
