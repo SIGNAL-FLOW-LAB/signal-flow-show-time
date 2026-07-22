@@ -9,6 +9,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'widgets/settings_sheet.dart';
+import 'widgets/show_title.dart';
 
 bool get isDesktopPlatform {
   if (kIsWeb) {
@@ -729,124 +730,21 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
     required double fontSize,
     required double availableWidth,
   }) {
-    if (_isEditingTitle) {
-      return ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: availableWidth),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _titleController,
-                focusNode: _titleFocusNode,
-                maxLines: 2,
-                minLines: 1,
-                maxLength: 80,
-                textAlign: TextAlign.center,
-                textCapitalization: TextCapitalization.sentences,
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: fontSize,
-                  fontWeight: FontWeight.w600,
-                  height: 1.2,
-                  letterSpacing: 0.4,
-                ),
-                decoration: InputDecoration(
-                  hintText: _t(
-                    '公演名・会場名・開演時刻など',
-                    'Show name, venue, show time, etc.',
-                  ),
-                  hintStyle: TextStyle(
-                    color: Colors.white38,
-                    fontSize: fontSize * 0.76,
-                    fontWeight: FontWeight.w400,
-                  ),
-                  counterText: '',
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: Colors.white30),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(
-                      color: Colors.white70,
-                      width: 1.5,
-                    ),
-                  ),
-                ),
-                onSubmitted: (_) {
-                  unawaited(_saveShowTitle());
-                },
-              ),
-            ),
-            const SizedBox(width: 6),
-            IconButton(
-              tooltip: _t('保存', 'Save'),
-              onPressed: _saveShowTitle,
-              icon: const Icon(
-                Icons.check_circle_outline,
-                color: Color(0xFF69F0AE),
-              ),
-            ),
-            IconButton(
-              tooltip: _t('キャンセル', 'Cancel'),
-              onPressed: _cancelTitleEditing,
-              icon: const Icon(Icons.close, color: Colors.white54),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return Semantics(
-      button: true,
-      label: _showTitle.isEmpty
-          ? _t('公演タイトルを入力', 'Enter Show Title')
-          : _t('公演タイトルを編集', 'Edit Show Title'),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(10),
-        onTap: _beginTitleEditing,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(minHeight: 48, maxWidth: availableWidth),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Flexible(
-                  child: Text(
-                    _showTitle.isEmpty
-                        ? _t('公演タイトルを入力', 'Enter Show Title')
-                        : _showTitle,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: _showTitle.isEmpty ? Colors.white38 : Colors.white,
-                      fontSize: _showTitle.isEmpty ? fontSize * 0.72 : fontSize,
-                      fontWeight: _showTitle.isEmpty
-                          ? FontWeight.w400
-                          : FontWeight.w600,
-                      height: 1.18,
-                      letterSpacing: 0.4,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                const Icon(
-                  Icons.edit_outlined,
-                  size: 17,
-                  color: Colors.white30,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
+    return ShowTitle(
+      title: _showTitle,
+      isEditing: _isEditingTitle,
+      fontSize: fontSize,
+      availableWidth: availableWidth,
+      titleController: _titleController,
+      titleFocusNode: _titleFocusNode,
+      emptyTitleLabel: _t('公演タイトルを入力', 'Enter Show Title'),
+      editTitleLabel: _t('公演タイトルを編集', 'Edit Show Title'),
+      hintText: _t('公演名・会場名・開演時刻など', 'Show name, venue, show time, etc.'),
+      saveLabel: _t('保存', 'Save'),
+      cancelLabel: _t('キャンセル', 'Cancel'),
+      onBeginEditing: _beginTitleEditing,
+      onSave: _saveShowTitle,
+      onCancel: _cancelTitleEditing,
     );
   }
 
@@ -1003,11 +901,19 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
                   ),
                 ),
                 onPressed: _resumeShowTime,
-                child: Text(
-                  'RESUME',
-                  style: TextStyle(
-                    fontSize: fontSize * 0.82,
-                    fontWeight: FontWeight.w600,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      'RESUME',
+                      maxLines: 1,
+                      softWrap: false,
+                      style: TextStyle(
+                        fontSize: fontSize * 0.82,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -1299,9 +1205,12 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
     );
 
     final shortcutLayer = CallbackShortcuts(
-      bindings: <ShortcutActivator, VoidCallback>{
-        const SingleActivator(LogicalKeyboardKey.space): _handlePrimaryShortcut,
-      },
+      bindings: _isEditingTitle
+          ? const <ShortcutActivator, VoidCallback>{}
+          : <ShortcutActivator, VoidCallback>{
+              const SingleActivator(LogicalKeyboardKey.space):
+                  _handlePrimaryShortcut,
+            },
       child: Focus(
         focusNode: _shortcutFocusNode,
         autofocus: true,
