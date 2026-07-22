@@ -8,7 +8,7 @@
 PRODUCT_NAME = SIGNAL FLOW Show Time
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = com.example.showTime
+PRODUCT_BUNDLE_IDENTIFIER = com.signalflow.showtime
 
 // The copyright displayed in application information
-PRODUCT_COPYRIGHT = Copyright © 2026 com.example. All rights reserved.
+PRODUCT_COPYRIGHT = Copyright © 2026 SIGNAL FLOW. All rights reserved.

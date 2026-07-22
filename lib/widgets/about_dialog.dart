@@ -41,18 +41,13 @@ Future<void> showShowTimeAboutDialog({
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Container(
-                          width: 58,
-                          height: 58,
-                          decoration: BoxDecoration(
-                            color: Colors.black,
-                            borderRadius: BorderRadius.circular(15),
-                            border: Border.all(color: Colors.white24),
-                          ),
-                          child: const Icon(
-                            Icons.timer_outlined,
-                            color: Colors.white,
-                            size: 31,
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(15),
+                          child: Image.asset(
+                            'assets/icons/show_time_app_icon.png',
+                            width: 58,
+                            height: 58,
+                            fit: BoxFit.cover,
                           ),
                         ),
                         const SizedBox(width: 18),

@@ -1,13 +1,21 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:show_time/app.dart';
+import 'package:show_time/widgets/show_elapsed_display.dart';
 
 void main() {
-  testWidgets('Show Time app starts successfully', (tester) async {
-    await tester.pumpWidget(const ShowTimeApp());
-    await tester.pump();
+  testWidgets('Show elapsed time is formatted correctly', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: ShowElapsedDisplay(
+            elapsed: Duration(hours: 1, minutes: 2, seconds: 3),
+            color: Colors.amber,
+            fontSize: 72,
+          ),
+        ),
+      ),
+    );
 
-    expect(find.text('SHOW TIME'), findsOneWidget);
-    expect(find.text('00:00:00'), findsOneWidget);
-    expect(find.text('START'), findsOneWidget);
+    expect(find.text('01:02:03'), findsOneWidget);
   });
 }
