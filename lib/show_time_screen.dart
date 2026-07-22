@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:window_manager/window_manager.dart';
 
+import 'widgets/main_controls.dart';
 import 'widgets/settings_sheet.dart';
 import 'widgets/show_title.dart';
 
@@ -24,8 +25,6 @@ bool get isDesktopPlatform {
 bool get isMacOSPlatform {
   return !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS;
 }
-
-enum ShowTimerStatus { idle, running, paused }
 
 class ShowTimeScreen extends StatefulWidget {
   const ShowTimeScreen({super.key});
@@ -819,116 +818,6 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
   // 操作ボタン
   // ---------------------------------------------------------------------------
 
-  Widget _buildMainControl({
-    required double width,
-    required double height,
-    required double fontSize,
-  }) {
-    switch (_timerStatus) {
-      case ShowTimerStatus.idle:
-        return SizedBox(
-          key: const ValueKey('idle-controls'),
-          width: width,
-          height: height,
-          child: ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green,
-              foregroundColor: Colors.white,
-              padding: EdgeInsets.zero,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(height / 2),
-              ),
-            ),
-            onPressed: _startShowTime,
-            child: Text(
-              'START',
-              style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w600),
-            ),
-          ),
-        );
-
-      case ShowTimerStatus.running:
-        return AnimatedOpacity(
-          key: const ValueKey('running-controls'),
-          opacity: _controlsVisible ? 1 : 0,
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOut,
-          child: IgnorePointer(
-            ignoring: !_controlsVisible,
-            child: SizedBox(
-              width: width,
-              height: height,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.amber,
-                  foregroundColor: Colors.black,
-                  padding: EdgeInsets.zero,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(height / 2),
-                  ),
-                ),
-                onPressed: _pauseShowTime,
-                child: Text(
-                  'PAUSE',
-                  style: TextStyle(
-                    fontSize: fontSize,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        );
-
-      case ShowTimerStatus.paused:
-        final availableButtonWidth = (width - 12) / 2;
-
-        return Row(
-          key: const ValueKey('paused-controls'),
-          mainAxisSize: MainAxisSize.min,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            SizedBox(
-              width: availableButtonWidth,
-              height: height,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
-                  foregroundColor: Colors.white,
-                  padding: EdgeInsets.zero,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(height / 2),
-                  ),
-                ),
-                onPressed: _resumeShowTime,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      'RESUME',
-                      maxLines: 1,
-                      softWrap: false,
-                      style: TextStyle(
-                        fontSize: fontSize * 0.82,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            _buildHoldResetButton(
-              width: availableButtonWidth,
-              height: height,
-              fontSize: fontSize,
-            ),
-          ],
-        );
-    }
-  }
-
   // ---------------------------------------------------------------------------
   // メイン画面
   // ---------------------------------------------------------------------------
@@ -1171,10 +1060,20 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
                                 height: buttonHeight,
                                 child: AnimatedSwitcher(
                                   duration: const Duration(milliseconds: 180),
-                                  child: _buildMainControl(
+                                  child: MainControls(
+                                    status: _timerStatus,
+                                    controlsVisible: _controlsVisible,
                                     width: buttonWidth,
                                     height: buttonHeight,
                                     fontSize: buttonFontSize,
+                                    onStart: _startShowTime,
+                                    onPause: _pauseShowTime,
+                                    onResume: _resumeShowTime,
+                                    resetButton: _buildHoldResetButton(
+                                      width: (buttonWidth - 12) / 2,
+                                      height: buttonHeight,
+                                      fontSize: buttonFontSize,
+                                    ),
                                   ),
                                 ),
                               ),

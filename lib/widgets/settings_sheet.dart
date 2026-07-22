@@ -134,10 +134,7 @@ Future<void> showSettingsSheet({
                       ),
                       const SizedBox(height: 8),
                       _SettingSwitch(
-                        title: translate(
-                          '現在時刻に秒を表示',
-                          'Show Current Seconds',
-                        ),
+                        title: translate('現在時刻に秒を表示', 'Show Current Seconds'),
                         subtitle: translate(
                           'OFFにすると「17:45」のように表示します',
                           'When off, the time is shown like “17:45”.',
@@ -168,10 +165,7 @@ Future<void> showSettingsSheet({
                           child: Divider(color: Colors.white24, height: 1),
                         ),
                         _SettingSwitch(
-                          title: translate(
-                            '常に最前面に表示',
-                            'Always on Top',
-                          ),
+                          title: translate('常に最前面に表示', 'Always on Top'),
                           subtitle: translate(
                             'ほかのアプリを操作してもShow Timeを手前に残します',
                             'Keeps Show Time above other apps.',
