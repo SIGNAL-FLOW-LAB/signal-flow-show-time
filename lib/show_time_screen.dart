@@ -8,6 +8,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:window_manager/window_manager.dart';
 
+import 'widgets/settings_sheet.dart';
+
 bool get isDesktopPlatform {
   if (kIsWeb) {
     return false;
@@ -23,8 +25,6 @@ bool get isMacOSPlatform {
 }
 
 enum ShowTimerStatus { idle, running, paused }
-
-enum AppLanguage { japanese, english }
 
 class ShowTimeScreen extends StatefulWidget {
   const ShowTimeScreen({super.key});
@@ -544,183 +544,22 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
       _controlsVisible = true;
     });
 
-    showModalBottomSheet<void>(
+    showSettingsSheet(
       context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (sheetContext) {
-        return StatefulBuilder(
-          builder: (context, updateSheet) {
-            Future<void> updateShowCurrentTime(bool value) async {
-              await _setShowCurrentTime(value);
-              if (sheetContext.mounted) {
-                updateSheet(() {});
-              }
-            }
-
-            Future<void> updateShowCurrentSeconds(bool value) async {
-              await _setShowCurrentSeconds(value);
-              if (sheetContext.mounted) {
-                updateSheet(() {});
-              }
-            }
-
-            Future<void> updateUse24Hour(bool value) async {
-              await _setUse24Hour(value);
-              if (sheetContext.mounted) {
-                updateSheet(() {});
-              }
-            }
-
-            Future<void> updateAlwaysOnTop(bool value) async {
-              if (!isDesktopPlatform) {
-                return;
-              }
-
-              await _toggleAlwaysOnTop();
-              if (sheetContext.mounted) {
-                updateSheet(() {});
-              }
-            }
-
-            Future<void> updateLanguage(AppLanguage value) async {
-              await _setLanguage(value);
-              if (sheetContext.mounted) {
-                updateSheet(() {});
-              }
-            }
-
-            return SafeArea(
-              child: Center(
-                child: Container(
-                  constraints: const BoxConstraints(
-                    maxWidth: 620,
-                    maxHeight: 700,
-                  ),
-                  margin: const EdgeInsets.all(12),
-                  padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF171717),
-                    borderRadius: BorderRadius.circular(26),
-                    border: Border.all(color: Colors.white12),
-                  ),
-                  child: SingleChildScrollView(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 34,
-                          height: 4,
-                          decoration: BoxDecoration(
-                            color: Colors.white38,
-                            borderRadius: BorderRadius.circular(99),
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        Text(
-                          _t('表示設定', 'Display Settings'),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 22,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 18),
-
-                        _buildLanguageSelector(onChanged: updateLanguage),
-
-                        const SizedBox(height: 12),
-
-                        _buildSettingSwitch(
-                          title: _t('現在時刻を表示', 'Show Current Time'),
-                          subtitle: _t(
-                            '公演用ストップウォッチの上に現在時刻を表示します',
-                            'Shows the current time above the show timer.',
-                          ),
-                          value: _showCurrentTime,
-                          onChanged: updateShowCurrentTime,
-                        ),
-
-                        const SizedBox(height: 8),
-
-                        _buildSettingSwitch(
-                          title: _t('現在時刻に秒を表示', 'Show Current Seconds'),
-                          subtitle: _t(
-                            'OFFにすると「17:45」のように表示します',
-                            'When off, the time is shown like “17:45”.',
-                          ),
-                          value: _showCurrentSeconds,
-                          enabled: _showCurrentTime,
-                          onChanged: updateShowCurrentSeconds,
-                        ),
-
-                        const SizedBox(height: 8),
-
-                        _buildSettingSwitch(
-                          title: _t('24時間表記', '24-Hour Format'),
-                          subtitle: _use24Hour
-                              ? _t(
-                                  '17:45形式で表示します',
-                                  'Displays time in 17:45 format.',
-                                )
-                              : _t(
-                                  '05:45 PM形式で表示します',
-                                  'Displays time in 05:45 PM format.',
-                                ),
-                          value: _use24Hour,
-                          enabled: _showCurrentTime,
-                          onChanged: updateUse24Hour,
-                        ),
-
-                        if (isDesktopPlatform) ...[
-                          const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 16),
-                            child: Divider(color: Colors.white24, height: 1),
-                          ),
-                          _buildSettingSwitch(
-                            title: _t('常に最前面に表示', 'Always on Top'),
-                            subtitle: _t(
-                              'ほかのアプリを操作してもShow Timeを手前に残します',
-                              'Keeps Show Time above other apps.',
-                            ),
-                            value: _isAlwaysOnTop,
-                            onChanged: updateAlwaysOnTop,
-                          ),
-                        ],
-
-                        const SizedBox(height: 18),
-
-                        SizedBox(
-                          width: double.infinity,
-                          height: 48,
-                          child: ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF69F0AE),
-                              foregroundColor: Colors.black,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(24),
-                              ),
-                            ),
-                            onPressed: () {
-                              Navigator.of(sheetContext).pop();
-                            },
-                            child: Text(
-                              _t('閉じる', 'Close'),
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            );
-          },
-        );
+      language: _language,
+      showCurrentTime: _showCurrentTime,
+      showCurrentSeconds: _showCurrentSeconds,
+      use24Hour: _use24Hour,
+      isAlwaysOnTop: _isAlwaysOnTop,
+      showAlwaysOnTopOption: isDesktopPlatform,
+      onLanguageChanged: _setLanguage,
+      onShowCurrentTimeChanged: _setShowCurrentTime,
+      onShowCurrentSecondsChanged: _setShowCurrentSeconds,
+      onUse24HourChanged: _setUse24Hour,
+      onAlwaysOnTopChanged: (value) async {
+        if (value != _isAlwaysOnTop) {
+          await _toggleAlwaysOnTop();
+        }
       },
     ).whenComplete(() {
       if (!mounted) {
@@ -737,124 +576,6 @@ class _ShowTimeScreenState extends State<ShowTimeScreen>
         _scheduleControlHide();
       }
     });
-  }
-
-  Widget _buildLanguageSelector({
-    required ValueChanged<AppLanguage> onChanged,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: const Color(0xFF222222),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _t('表示言語', 'Display Language'),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  _t(
-                    '画面内の固定ラベルを切り替えます',
-                    'Changes the fixed labels in the app.',
-                  ),
-                  style: const TextStyle(
-                    color: Colors.white54,
-                    fontSize: 13,
-                    height: 1.25,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          ToggleButtons(
-            isSelected: [
-              _language == AppLanguage.japanese,
-              _language == AppLanguage.english,
-            ],
-            onPressed: (index) {
-              onChanged(
-                index == 0 ? AppLanguage.japanese : AppLanguage.english,
-              );
-            },
-            borderRadius: BorderRadius.circular(9),
-            constraints: const BoxConstraints(minWidth: 52, minHeight: 36),
-            color: Colors.white70,
-            selectedColor: Colors.black,
-            fillColor: const Color(0xFF69F0AE),
-            borderColor: Colors.white24,
-            selectedBorderColor: const Color(0xFF69F0AE),
-            children: const [Text('日本語'), Text('EN')],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSettingSwitch({
-    required String title,
-    required String subtitle,
-    required bool value,
-    required ValueChanged<bool> onChanged,
-    bool enabled = true,
-  }) {
-    return AnimatedOpacity(
-      duration: const Duration(milliseconds: 160),
-      opacity: enabled ? 1 : 0.38,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: const Color(0xFF222222),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    subtitle,
-                    style: const TextStyle(
-                      color: Colors.white54,
-                      fontSize: 13,
-                      height: 1.25,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            Switch(
-              value: value,
-              onChanged: enabled ? onChanged : null,
-              activeTrackColor: Colors.green.shade600,
-              activeColor: Colors.white,
-            ),
-          ],
-        ),
-      ),
-    );
   }
 
   // ---------------------------------------------------------------------------
