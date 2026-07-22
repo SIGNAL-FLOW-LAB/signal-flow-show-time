@@ -27,8 +27,27 @@ bool get isMacOSPlatform {
   return !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS;
 }
 
+class ShowTimeMenuController {
+  final ValueNotifier<AppLanguage> language = ValueNotifier<AppLanguage>(
+    AppLanguage.japanese,
+  );
+  final ValueNotifier<bool> alwaysOnTop = ValueNotifier<bool>(false);
+
+  VoidCallback? openSettings;
+  VoidCallback? toggleAlwaysOnTop;
+  VoidCallback? primaryAction;
+  ValueChanged<AppLanguage>? setLanguage;
+
+  void dispose() {
+    language.dispose();
+    alwaysOnTop.dispose();
+  }
+}
+
 class ShowTimeScreen extends StatefulWidget {
-  const ShowTimeScreen({super.key});
+  const ShowTimeScreen({super.key, required this.menuController});
+
+  final ShowTimeMenuController menuController;
 
   @override
   State<ShowTimeScreen> createState() => _ShowTimeScreenState();
@@ -79,6 +98,15 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
   @override
   void initState() {
     super.initState();
+
+    widget.menuController.openSettings = _openSettings;
+    widget.menuController.toggleAlwaysOnTop = () {
+      unawaited(_toggleAlwaysOnTop());
+    };
+    widget.menuController.primaryAction = _handlePrimaryShortcut;
+    widget.menuController.setLanguage = (value) {
+      unawaited(_setLanguage(value));
+    };
 
     _lifecycleListener = AppLifecycleListener(
       onResume: _handleAppResume,
@@ -138,6 +166,9 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
           ? AppLanguage.english
           : AppLanguage.japanese;
     });
+
+    widget.menuController.language.value = _language;
+    widget.menuController.alwaysOnTop.value = _isAlwaysOnTop;
   }
 
   void _enableWakelock() {
@@ -185,6 +216,11 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
     _titleController.dispose();
     _titleFocusNode.dispose();
     _shortcutFocusNode.dispose();
+
+    widget.menuController.openSettings = null;
+    widget.menuController.toggleAlwaysOnTop = null;
+    widget.menuController.primaryAction = null;
+    widget.menuController.setLanguage = null;
 
     _disableWakelock();
 
@@ -430,6 +466,8 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
     setState(() {
       _isAlwaysOnTop = newValue;
     });
+
+    widget.menuController.alwaysOnTop.value = newValue;
   }
 
   Future<void> _setShowCurrentTime(bool value) async {
@@ -460,6 +498,8 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
     setState(() {
       _language = value;
     });
+
+    widget.menuController.language.value = value;
 
     await _preferences.setString(
       _languageKey,
@@ -573,50 +613,6 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
 
   double _clamp(double value, double minimum, double maximum) {
     return value.clamp(minimum, maximum).toDouble();
-  }
-
-  // ---------------------------------------------------------------------------
-  // macOSメニュー
-  // ---------------------------------------------------------------------------
-
-  Widget _buildPlatformMenu(Widget child) {
-    if (!isMacOSPlatform) {
-      return child;
-    }
-
-    return PlatformMenuBar(
-      menus: [
-        PlatformMenu(
-          label: 'Show Time',
-          menus: [
-            PlatformMenuItemGroup(
-              members: [
-                PlatformMenuItem(
-                  label: _primaryActionLabel,
-                  shortcut: const SingleActivator(LogicalKeyboardKey.space),
-                  onSelected: _handlePrimaryShortcut,
-                ),
-              ],
-            ),
-            PlatformMenuItemGroup(
-              members: [
-                PlatformMenuItem(
-                  label: _t('表示設定…', 'Display Settings…'),
-                  onSelected: _openSettings,
-                ),
-                PlatformMenuItem(
-                  label: _isAlwaysOnTop
-                      ? _t('✓ 常に最前面に表示', '✓ Always on Top')
-                      : _t('常に最前面に表示', 'Always on Top'),
-                  onSelected: _toggleAlwaysOnTop,
-                ),
-              ],
-            ),
-          ],
-        ),
-      ],
-      child: child,
-    );
   }
 
   // ---------------------------------------------------------------------------
@@ -978,6 +974,8 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
           : <ShortcutActivator, VoidCallback>{
               const SingleActivator(LogicalKeyboardKey.space):
                   _handlePrimaryShortcut,
+              const SingleActivator(LogicalKeyboardKey.comma, meta: true):
+                  _openSettings,
             },
       child: Focus(
         focusNode: _shortcutFocusNode,
@@ -986,6 +984,6 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
       ),
     );
 
-    return _buildPlatformMenu(shortcutLayer);
+    return shortcutLayer;
   }
 }
