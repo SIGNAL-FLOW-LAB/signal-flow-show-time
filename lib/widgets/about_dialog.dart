@@ -44,7 +44,7 @@ Future<void> showShowTimeAboutDialog({
                         ClipRRect(
                           borderRadius: BorderRadius.circular(15),
                           child: Image.asset(
-                            'assets/icons/show_time_app_icon.png',
+                            'assets/icons/app_icon.png',
                             width: 58,
                             height: 58,
                             fit: BoxFit.cover,
