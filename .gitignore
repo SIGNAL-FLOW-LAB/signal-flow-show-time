@@ -1,0 +1,49 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+coverage/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Android
+android/.gradle/
+android/local.properties
+android/key.properties
+**/*.jks
+**/*.keystore
+
+# iOS / macOS generated
+**/Flutter/ephemeral/
+**/Flutter/Generated.xcconfig
+**/Flutter/flutter_export_environment.sh
+**/Pods/
+**/.symlinks/
+**/DerivedData/
+
+# Windows / Linux generated
+windows/flutter/ephemeral/
+linux/flutter/ephemeral/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
+*.dmg
+
+# macOS release artifacts
+*.dmg
+dmg_source/
+.DS_Store

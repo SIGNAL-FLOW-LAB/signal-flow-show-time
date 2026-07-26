@@ -22,7 +22,7 @@ class AppSettings {
 
 class SettingsService {
   SettingsService({SharedPreferencesAsync? preferences})
-      : _preferences = preferences ?? SharedPreferencesAsync();
+    : _preferences = preferences ?? SharedPreferencesAsync();
 
   static const String _showTitleKey = 'show_title';
   static const String _alwaysOnTopKey = 'always_on_top';
@@ -77,7 +77,7 @@ class SettingsService {
       _preferences.setBool(_use24HourKey, value);
 
   Future<void> saveLanguage(AppLanguage value) => _preferences.setString(
-        _languageKey,
-        value == AppLanguage.english ? 'en' : 'ja',
-      );
+    _languageKey,
+    value == AppLanguage.english ? 'en' : 'ja',
+  );
 }
