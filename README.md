@@ -1,10 +1,22 @@
 # SIGNAL FLOW Show Time
+![SIGNAL FLOW Show Time](images/screenshot.png)
 
 A simple show timer for stage, theatre, live-event, broadcast, presentation, and production teams.
 
-## Current release candidate
+## Current version
 
-`1.0.0-rc.2`
+`1.0.0`
+
+## Installation
+
+### macOS
+
+1. Download the latest `.dmg` from the **Releases** page.
+2. Open the DMG.
+3. Drag **SIGNAL FLOW Show Time** into the **Applications** folder.
+4. Launch the application.
+
+> If macOS warns that the app is from an unidentified developer, right-click the app and choose **Open** once.
 
 ## Features
 

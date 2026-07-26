@@ -613,7 +613,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> {
                         ? _clamp(shortestSide * 0.045, 15, 22)
                         : isNarrow
                         ? _clamp(width * 0.052, 17, 25)
-                        : _clamp(width * 0.032, 20, 42);
+                        : _clamp(width * 0.032, 32, 42);
 
                     final labelFontSize = isCompactHeight
                         ? _clamp(shortestSide * 0.034, 11, 16)
