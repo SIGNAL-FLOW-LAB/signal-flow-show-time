@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:window_manager/window_manager.dart';
 
 import 'controllers/show_time_menu_controller.dart';
 import 'models/app_info.dart';
@@ -31,6 +32,15 @@ class _ShowTimeAppState extends State<ShowTimeApp> {
 
   String _text(AppLanguage language, String japanese, String english) {
     return language == AppLanguage.japanese ? japanese : english;
+  }
+
+  Future<void> _quitApplication() async {
+    if (isDesktopPlatform) {
+      await windowManager.close();
+      return;
+    }
+
+    await SystemNavigator.pop();
   }
 
   Widget _buildApp() {
@@ -146,7 +156,9 @@ class _ShowTimeAppState extends State<ShowTimeApp> {
                         LogicalKeyboardKey.keyQ,
                         meta: true,
                       ),
-                      onSelected: SystemNavigator.pop,
+                      onSelected: () {
+                        _quitApplication();
+                      },
                     ),
                   ],
                 ),

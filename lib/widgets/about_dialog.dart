@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import '../models/app_info.dart';
 import '../models/app_language.dart';
@@ -7,12 +8,18 @@ import '../models/app_language.dart';
 Future<void> showShowTimeAboutDialog({
   required BuildContext context,
   required AppLanguage language,
-}) {
+}) async {
+  final PackageInfo packageInfo = await PackageInfo.fromPlatform();
+
+  if (!context.mounted) {
+    return;
+  }
+
   String t(String japanese, String english) {
     return language == AppLanguage.japanese ? japanese : english;
   }
 
-  return showDialog<void>(
+  await showDialog<void>(
     context: context,
     barrierDismissible: true,
     builder: (dialogContext) {
@@ -51,11 +58,11 @@ Future<void> showShowTimeAboutDialog({
                           ),
                         ),
                         const SizedBox(width: 18),
-                        const Expanded(
+                        Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
+                              const Text(
                                 AppInfo.appName,
                                 style: TextStyle(
                                   color: Colors.white,
@@ -63,10 +70,10 @@ Future<void> showShowTimeAboutDialog({
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
-                              SizedBox(height: 5),
+                              const SizedBox(height: 5),
                               Text(
-                                'Version ${AppInfo.version}',
-                                style: TextStyle(
+                                'Version ${packageInfo.version}',
+                                style: const TextStyle(
                                   color: Colors.white60,
                                   fontSize: 14,
                                 ),
