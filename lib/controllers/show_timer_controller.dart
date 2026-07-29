@@ -22,6 +22,23 @@ class ShowTimerController extends ChangeNotifier {
   bool get isRunning => _status == ShowTimerStatus.running;
   bool get isPaused => _status == ShowTimerStatus.paused;
 
+  void restoreElapsed(Duration elapsed) {
+    _ticker?.cancel();
+    _ticker = null;
+    _currentRunStartedAt = null;
+
+    final safeElapsed = elapsed.isNegative ? Duration.zero : elapsed;
+
+    _completedRunTime = safeElapsed;
+    _elapsed = safeElapsed;
+
+    _status = safeElapsed == Duration.zero
+        ? ShowTimerStatus.idle
+        : ShowTimerStatus.paused;
+
+    notifyListeners();
+  }
+
   void start() {
     _ticker?.cancel();
     _completedRunTime = Duration.zero;
@@ -38,10 +55,12 @@ class ShowTimerController extends ChangeNotifier {
     }
 
     final now = DateTime.now();
+
     _completedRunTime += now.difference(_currentRunStartedAt!);
     _elapsed = _completedRunTime;
     _currentRunStartedAt = null;
     _status = ShowTimerStatus.paused;
+
     _ticker?.cancel();
     notifyListeners();
   }
@@ -53,6 +72,7 @@ class ShowTimerController extends ChangeNotifier {
 
     _currentRunStartedAt = DateTime.now();
     _status = ShowTimerStatus.running;
+
     _startTicker();
     notifyListeners();
   }
@@ -64,6 +84,7 @@ class ShowTimerController extends ChangeNotifier {
     _currentRunStartedAt = null;
     _completedRunTime = Duration.zero;
     _elapsed = Duration.zero;
+
     notifyListeners();
   }
 
@@ -79,6 +100,7 @@ class ShowTimerController extends ChangeNotifier {
 
   void _startTicker() {
     _ticker?.cancel();
+
     _ticker = Timer.periodic(tickInterval, (_) {
       if (!isRunning || _currentRunStartedAt == null) {
         return;
