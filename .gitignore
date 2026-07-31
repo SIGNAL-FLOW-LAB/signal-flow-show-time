@@ -47,3 +47,4 @@ linux/flutter/ephemeral/
 *.dmg
 dmg_source/
 .DS_Store
+release_dmg_v102/
