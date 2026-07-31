@@ -3,9 +3,11 @@
 
 A simple show timer for stage, theatre, live-event, broadcast, presentation, and production teams.
 
-## Current version
+## Current Version
 
-`1.0.0`
+**v1.0.2**
+
+📦 **[Download the latest release](https://github.com/SIGNAL-FLOW-LAB/signal-flow-show-time/releases/latest)**
 
 ## Installation
 
