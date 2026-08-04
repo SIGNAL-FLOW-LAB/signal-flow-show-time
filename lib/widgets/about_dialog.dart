@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import '../models/app_info.dart';
 import '../models/app_language.dart';
@@ -7,7 +8,13 @@ import '../models/app_language.dart';
 Future<void> showShowTimeAboutDialog({
   required BuildContext context,
   required AppLanguage language,
-}) {
+}) async {
+  final packageInfo = await PackageInfo.fromPlatform();
+
+  if (!context.mounted) {
+    return;
+  }
+
   String t(String japanese, String english) {
     return language == AppLanguage.japanese ? japanese : english;
   }
@@ -51,11 +58,11 @@ Future<void> showShowTimeAboutDialog({
                           ),
                         ),
                         const SizedBox(width: 18),
-                        const Expanded(
+                        Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
+                              const Text(
                                 AppInfo.appName,
                                 style: TextStyle(
                                   color: Colors.white,
@@ -63,10 +70,11 @@ Future<void> showShowTimeAboutDialog({
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
-                              SizedBox(height: 5),
+                              const SizedBox(height: 5),
                               Text(
-                                'Version ${AppInfo.version}',
-                                style: TextStyle(
+                                'Version ${packageInfo.version} '
+                                '(${packageInfo.buildNumber})',
+                                style: const TextStyle(
                                   color: Colors.white60,
                                   fontSize: 14,
                                 ),
@@ -118,7 +126,9 @@ Future<void> showShowTimeAboutDialog({
                     Align(
                       alignment: Alignment.centerRight,
                       child: TextButton(
-                        onPressed: () => Navigator.of(dialogContext).pop(),
+                        onPressed: () {
+                          Navigator.of(dialogContext).pop();
+                        },
                         child: Text(t('閉じる', 'Close')),
                       ),
                     ),
