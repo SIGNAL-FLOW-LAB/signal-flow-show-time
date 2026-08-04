@@ -35,8 +35,6 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
 
   final SettingsService _settingsService = SettingsService();
   final SessionService _sessionService = SessionService();
-  final TextEditingController _titleController = TextEditingController();
-  final FocusNode _titleFocusNode = FocusNode();
   final FocusNode _shortcutFocusNode = FocusNode();
 
   late final ShowTimerController _timerController;
@@ -48,7 +46,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
   Offset? _lastPointerPosition;
 
   String _showTitle = '';
-  bool _isEditingTitle = false;
+  bool _isTitleDialogOpen = false;
   bool _isSettingsOpen = false;
   bool _isAboutOpen = false;
   bool _isClosingWindow = false;
@@ -107,7 +105,6 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
 
     setState(() {
       _showTitle = settings.showTitle;
-      _titleController.text = settings.showTitle;
       _isAlwaysOnTop = settings.alwaysOnTop;
       _showCurrentTime = settings.showCurrentTime;
       _showCurrentSeconds = settings.showCurrentSeconds;
@@ -233,8 +230,6 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
 
     _lifecycleListener.dispose();
 
-    _titleController.dispose();
-    _titleFocusNode.dispose();
     _shortcutFocusNode.dispose();
 
     widget.menuController.openSettings = null;
@@ -253,61 +248,48 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
   }
 
   // ---------------------------------------------------------------------------
-  // タイトル
+  // 表示コメント
   // ---------------------------------------------------------------------------
 
-  void _beginTitleEditing() {
-    _controlHideTimer?.cancel();
-    _titleController.text = _showTitle;
-
-    setState(() {
-      _isEditingTitle = true;
-      _controlsVisible = true;
-    });
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) {
-        return;
-      }
-
-      _titleFocusNode.requestFocus();
-      _titleController.selection = TextSelection(
-        baseOffset: 0,
-        extentOffset: _titleController.text.length,
-      );
-    });
-  }
-
-  Future<void> _saveShowTitle() async {
-    final newTitle = _titleController.text.trim();
-
-    setState(() {
-      _showTitle = newTitle;
-      _isEditingTitle = false;
-    });
-
-    _titleFocusNode.unfocus();
-    _shortcutFocusNode.requestFocus();
-
-    await _settingsService.saveShowTitle(newTitle);
-
-    if (_timerController.status == ShowTimerStatus.running) {
-      _showControlsTemporarily();
+  Future<void> _showTitleEditDialog() async {
+    if (_isTitleDialogOpen || _isSettingsOpen || _isAboutOpen) {
+      return;
     }
-  }
 
-  void _cancelTitleEditing() {
-    _titleController.text = _showTitle;
-    _titleFocusNode.unfocus();
+    _controlHideTimer?.cancel();
 
     setState(() {
-      _isEditingTitle = false;
+      _isTitleDialogOpen = true;
+      _controlsVisible = false;
+    });
+
+    final result = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return _ShowCommentEditDialog(
+          initialText: _showTitle,
+          language: _language,
+        );
+      },
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isTitleDialogOpen = false;
     });
 
     _shortcutFocusNode.requestFocus();
 
-    if (_timerController.status == ShowTimerStatus.running) {
-      _showControlsTemporarily();
+    if (result != null) {
+      setState(() {
+        _showTitle = result;
+      });
+
+      await _settingsService.saveShowTitle(result);
     }
   }
 
@@ -362,7 +344,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
   }
 
   void _handlePrimaryShortcut() {
-    if (_isEditingTitle || _isSettingsOpen || _isAboutOpen) {
+    if (_isTitleDialogOpen || _isSettingsOpen || _isAboutOpen) {
       return;
     }
 
@@ -384,7 +366,8 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
   // ---------------------------------------------------------------------------
 
   void _showControlsTemporarily() {
-    if (_timerController.status != ShowTimerStatus.running || _isEditingTitle) {
+    if (_timerController.status != ShowTimerStatus.running ||
+        _isTitleDialogOpen) {
       return;
     }
 
@@ -400,14 +383,15 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
   void _scheduleControlHide() {
     _controlHideTimer?.cancel();
 
-    if (_timerController.status != ShowTimerStatus.running || _isEditingTitle) {
+    if (_timerController.status != ShowTimerStatus.running ||
+        _isTitleDialogOpen) {
       return;
     }
 
     _controlHideTimer = Timer(_controlHideDelay, () {
       if (!mounted ||
           _timerController.status != ShowTimerStatus.running ||
-          _isEditingTitle) {
+          _isTitleDialogOpen) {
         return;
       }
 
@@ -430,12 +414,6 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
     }
 
     _showControlsTemporarily();
-  }
-
-  void _handlePointerDown(PointerDownEvent event) {
-    _lastPointerPosition = event.position;
-    _showControlsTemporarily();
-    _shortcutFocusNode.requestFocus();
   }
 
   // ---------------------------------------------------------------------------
@@ -534,7 +512,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
 
     setState(() {
       _isSettingsOpen = true;
-      _controlsVisible = true;
+      _controlsVisible = false;
     });
 
     showSettingsSheet(
@@ -628,7 +606,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
   }
 
   // ---------------------------------------------------------------------------
-  // 公演タイトル
+  // 表示コメント
   // ---------------------------------------------------------------------------
 
   Widget _buildShowTitle({
@@ -637,19 +615,11 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
   }) {
     return ShowTitle(
       title: _showTitle,
-      isEditing: _isEditingTitle,
       fontSize: fontSize,
       availableWidth: availableWidth,
-      titleController: _titleController,
-      titleFocusNode: _titleFocusNode,
-      emptyTitleLabel: _t('公演タイトルを入力', 'Enter Show Title'),
-      editTitleLabel: _t('公演タイトルを編集', 'Edit Show Title'),
-      hintText: _t('公演名・会場名・開演時刻など', 'Show name, venue, show time, etc.'),
-      saveLabel: _t('保存', 'Save'),
-      cancelLabel: _t('キャンセル', 'Cancel'),
-      onBeginEditing: _beginTitleEditing,
-      onSave: _saveShowTitle,
-      onCancel: _cancelTitleEditing,
+      emptyTitleLabel: _t('コメントを入力', 'Enter Comment'),
+      editTitleLabel: _t('表示コメントを編集', 'Edit Display Comment'),
+      onBeginEditing: _showTitleEditDialog,
     );
   }
 
@@ -669,9 +639,16 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
       body: MouseRegion(
         cursor: SystemMouseCursors.basic,
         onHover: _handlePointerHover,
-        child: Listener(
+        child: GestureDetector(
           behavior: HitTestBehavior.translucent,
-          onPointerDown: _handlePointerDown,
+          onTap: () {
+            if (_isTitleDialogOpen || _isSettingsOpen || _isAboutOpen) {
+              return;
+            }
+
+            _showControlsTemporarily();
+            _shortcutFocusNode.requestFocus();
+          },
           child: Stack(
             children: [
               SafeArea(
@@ -859,10 +836,14 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
                                 width: buttonWidth,
                                 height: buttonHeight,
                                 child: AnimatedSwitcher(
-                                  duration: const Duration(milliseconds: 180),
+                                  duration: Duration.zero,
                                   child: MainControls(
                                     status: _timerController.status,
-                                    controlsVisible: _controlsVisible,
+                                    controlsVisible:
+                                        _controlsVisible &&
+                                        !_isTitleDialogOpen &&
+                                        !_isSettingsOpen &&
+                                        !_isAboutOpen,
                                     width: buttonWidth,
                                     height: buttonHeight,
                                     fontSize: buttonFontSize,
@@ -905,7 +886,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
     );
 
     final shortcutLayer = CallbackShortcuts(
-      bindings: _isEditingTitle
+      bindings: _isTitleDialogOpen
           ? const <ShortcutActivator, VoidCallback>{}
           : <ShortcutActivator, VoidCallback>{
               const SingleActivator(LogicalKeyboardKey.space):
@@ -921,5 +902,206 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
     );
 
     return shortcutLayer;
+  }
+}
+
+class _ShowCommentEditDialog extends StatefulWidget {
+  const _ShowCommentEditDialog({
+    required this.initialText,
+    required this.language,
+  });
+
+  final String initialText;
+  final AppLanguage language;
+
+  @override
+  State<_ShowCommentEditDialog> createState() => _ShowCommentEditDialogState();
+}
+
+class _ShowCommentEditDialogState extends State<_ShowCommentEditDialog> {
+  late final TextEditingController _controller;
+  late final FocusNode _focusNode;
+
+  String _t(String japanese, String english) {
+    return widget.language == AppLanguage.japanese ? japanese : english;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialText);
+    _focusNode = FocusNode();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+
+      _focusNode.requestFocus();
+      _controller.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: _controller.text.length,
+      );
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    Navigator.of(context).pop(_controller.text.trim());
+  }
+
+  void _cancel() {
+    Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final screenSize = MediaQuery.sizeOf(context);
+    final isTablet = screenSize.shortestSide >= 600;
+
+    return Dialog(
+      backgroundColor: const Color(0xFF171717),
+      insetPadding: EdgeInsets.symmetric(
+        horizontal: isTablet ? 80 : 24,
+        vertical: 24,
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(22),
+        side: const BorderSide(color: Colors.white12),
+      ),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 680),
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            isTablet ? 32 : 22,
+            isTablet ? 30 : 22,
+            isTablet ? 32 : 22,
+            isTablet ? 24 : 18,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                _t('表示コメントを編集', 'Edit Display Comment'),
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: isTablet ? 24 : 20,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              SizedBox(height: isTablet ? 12 : 10),
+              Text(
+                _t(
+                  '公演名、会場名、演目、連絡事項など、表示したい内容を自由に入力できます。\n'
+                      '最大2行・80文字まで入力できます。',
+                  'Enter any message you want to display, such as a show name, '
+                      'venue, program, or note.\n'
+                      'Up to 2 lines and 80 characters.',
+                ),
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white54,
+                  fontSize: isTablet ? 15 : 13,
+                  height: 1.5,
+                ),
+              ),
+              SizedBox(height: isTablet ? 18 : 14),
+              TextField(
+                controller: _controller,
+                focusNode: _focusNode,
+                autofocus: true,
+                minLines: 2,
+                maxLines: 2,
+                maxLength: 80,
+                keyboardType: TextInputType.multiline,
+                textInputAction: TextInputAction.newline,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: isTablet ? 28 : 22,
+                  fontWeight: FontWeight.w600,
+                  height: 1.3,
+                ),
+                decoration: InputDecoration(
+                  hintText: _t(
+                    '例：8/1 都城市民会館\nでんじろう先生のサイエンスショー',
+                    'Example: August 1, City Hall\nScience Show',
+                  ),
+                  hintStyle: TextStyle(
+                    color: Colors.white30,
+                    fontSize: isTablet ? 22 : 18,
+                    fontWeight: FontWeight.w400,
+                    height: 1.3,
+                  ),
+                  counterStyle: const TextStyle(color: Colors.white38),
+                  filled: true,
+                  fillColor: const Color(0xFF222222),
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: isTablet ? 22 : 16,
+                    vertical: isTablet ? 24 : 18,
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: Colors.white24),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(
+                      color: Color(0xFF69F0AE),
+                      width: 1.5,
+                    ),
+                  ),
+                ),
+              ),
+              SizedBox(height: isTablet ? 24 : 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: _cancel,
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: Size(0, isTablet ? 58 : 50),
+                        foregroundColor: Colors.white70,
+                        side: const BorderSide(color: Colors.white24),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      child: Text(_t('キャンセル', 'Cancel')),
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: _save,
+                      style: FilledButton.styleFrom(
+                        minimumSize: Size(0, isTablet ? 58 : 50),
+                        backgroundColor: const Color(0xFF69F0AE),
+                        foregroundColor: Colors.black,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      child: Text(
+                        _t('保存', 'Save'),
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
