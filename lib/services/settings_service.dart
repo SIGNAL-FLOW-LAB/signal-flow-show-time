@@ -1,6 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/app_language.dart';
+import '../models/comment_alignment.dart';
 
 class AppSettings {
   const AppSettings({
@@ -10,6 +11,7 @@ class AppSettings {
     required this.showCurrentSeconds,
     required this.use24Hour,
     required this.language,
+    required this.commentAlignment,
   });
 
   final String showTitle;
@@ -18,6 +20,7 @@ class AppSettings {
   final bool showCurrentSeconds;
   final bool use24Hour;
   final AppLanguage language;
+  final CommentAlignment commentAlignment;
 }
 
 class SettingsService {
@@ -31,17 +34,37 @@ class SettingsService {
   static const String _use24HourKey = 'use_24_hour';
   static const String _languageKey = 'display_language';
 
+  // v1.0.4 コメント位置
+  static const String _commentAlignmentKey = 'comment_alignment';
+
   final SharedPreferencesAsync _preferences;
+
+  // ---------------------------------------------------------------------------
+  // 設定読み込み
+  // ---------------------------------------------------------------------------
 
   Future<AppSettings> load() async {
     final showTitle = await _preferences.getString(_showTitleKey) ?? '';
+
     final alwaysOnTop = await _preferences.getBool(_alwaysOnTopKey) ?? false;
+
     final showCurrentTime =
         await _preferences.getBool(_showCurrentTimeKey) ?? true;
+
     final showCurrentSeconds =
         await _preferences.getBool(_showCurrentSecondsKey) ?? true;
+
     final use24Hour = await _preferences.getBool(_use24HourKey) ?? true;
+
     final languageCode = await _preferences.getString(_languageKey) ?? 'ja';
+
+    final commentAlignmentName =
+        await _preferences.getString(_commentAlignmentKey) ?? 'center';
+
+    final commentAlignment = CommentAlignment.values.firstWhere(
+      (value) => value.name == commentAlignmentName,
+      orElse: () => CommentAlignment.center,
+    );
 
     return AppSettings(
       showTitle: showTitle.trim(),
@@ -52,32 +75,69 @@ class SettingsService {
       language: languageCode == 'en'
           ? AppLanguage.english
           : AppLanguage.japanese,
+      commentAlignment: commentAlignment,
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // 表示コメント
+  // ---------------------------------------------------------------------------
+
   Future<void> saveShowTitle(String value) async {
     final trimmed = value.trim();
+
     if (trimmed.isEmpty) {
       await _preferences.remove(_showTitleKey);
       return;
     }
+
     await _preferences.setString(_showTitleKey, trimmed);
   }
 
-  Future<void> saveAlwaysOnTop(bool value) =>
-      _preferences.setBool(_alwaysOnTopKey, value);
+  // ---------------------------------------------------------------------------
+  // コメント位置
+  // ---------------------------------------------------------------------------
 
-  Future<void> saveShowCurrentTime(bool value) =>
-      _preferences.setBool(_showCurrentTimeKey, value);
+  Future<void> saveCommentAlignment(CommentAlignment value) async {
+    await _preferences.setString(_commentAlignmentKey, value.name);
+  }
 
-  Future<void> saveShowCurrentSeconds(bool value) =>
-      _preferences.setBool(_showCurrentSecondsKey, value);
+  // ---------------------------------------------------------------------------
+  // 常に最前面
+  // ---------------------------------------------------------------------------
 
-  Future<void> saveUse24Hour(bool value) =>
-      _preferences.setBool(_use24HourKey, value);
+  Future<void> saveAlwaysOnTop(bool value) {
+    return _preferences.setBool(_alwaysOnTopKey, value);
+  }
 
-  Future<void> saveLanguage(AppLanguage value) => _preferences.setString(
-    _languageKey,
-    value == AppLanguage.english ? 'en' : 'ja',
-  );
+  // ---------------------------------------------------------------------------
+  // 現在時刻
+  // ---------------------------------------------------------------------------
+
+  Future<void> saveShowCurrentTime(bool value) {
+    return _preferences.setBool(_showCurrentTimeKey, value);
+  }
+
+  Future<void> saveShowCurrentSeconds(bool value) {
+    return _preferences.setBool(_showCurrentSecondsKey, value);
+  }
+
+  // ---------------------------------------------------------------------------
+  // 24時間表記
+  // ---------------------------------------------------------------------------
+
+  Future<void> saveUse24Hour(bool value) {
+    return _preferences.setBool(_use24HourKey, value);
+  }
+
+  // ---------------------------------------------------------------------------
+  // 表示言語
+  // ---------------------------------------------------------------------------
+
+  Future<void> saveLanguage(AppLanguage value) {
+    return _preferences.setString(
+      _languageKey,
+      value == AppLanguage.english ? 'en' : 'ja',
+    );
+  }
 }

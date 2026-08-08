@@ -6,6 +6,8 @@ class ShowTitle extends StatelessWidget {
     required this.title,
     required this.fontSize,
     required this.availableWidth,
+    this.maxLines = 2,
+    this.textAlign = TextAlign.center,
     required this.emptyTitleLabel,
     required this.editTitleLabel,
     required this.onBeginEditing,
@@ -14,13 +16,16 @@ class ShowTitle extends StatelessWidget {
   final String title;
   final double fontSize;
   final double availableWidth;
+  final int maxLines;
+  final TextAlign textAlign;
   final String emptyTitleLabel;
   final String editTitleLabel;
   final VoidCallback onBeginEditing;
 
   @override
   Widget build(BuildContext context) {
-    final bool isEmpty = title.trim().isEmpty;
+    final isEmpty = title.trim().isEmpty;
+    final displayMaxLines = isEmpty ? 1 : maxLines;
 
     return Semantics(
       button: true,
@@ -35,13 +40,15 @@ class ShowTitle extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Flexible(
                   child: Text(
                     isEmpty ? emptyTitleLabel : title,
-                    maxLines: 2,
+                    maxLines: displayMaxLines,
+                    softWrap: true,
                     overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
+                    textAlign: textAlign,
                     style: TextStyle(
                       color: isEmpty ? Colors.white38 : Colors.white,
                       fontSize: isEmpty ? fontSize * 0.72 : fontSize,
@@ -52,10 +59,13 @@ class ShowTitle extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 10),
-                const Icon(
-                  Icons.edit_outlined,
-                  size: 20,
-                  color: Colors.white30,
+                Transform.translate(
+                  offset: const Offset(12, 0), // ← 鉛筆だけ12px右へ
+                  child: const Icon(
+                    Icons.edit_outlined,
+                    size: 20,
+                    color: Colors.white30,
+                  ),
                 ),
               ],
             ),

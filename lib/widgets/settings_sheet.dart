@@ -2,25 +2,31 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/app_language.dart';
+import '../models/comment_alignment.dart';
 
 typedef AsyncBoolChanged = Future<void> Function(bool value);
 typedef AsyncLanguageChanged = Future<void> Function(AppLanguage value);
+typedef AsyncCommentAlignmentChanged =
+    Future<void> Function(CommentAlignment value);
 
 Future<void> showSettingsSheet({
   required BuildContext context,
   required AppLanguage language,
+  required CommentAlignment commentAlignment,
   required bool showCurrentTime,
   required bool showCurrentSeconds,
   required bool use24Hour,
   required bool isAlwaysOnTop,
   required bool showAlwaysOnTopOption,
   required AsyncLanguageChanged onLanguageChanged,
+  required AsyncCommentAlignmentChanged onCommentAlignmentChanged,
   required AsyncBoolChanged onShowCurrentTimeChanged,
   required AsyncBoolChanged onShowCurrentSecondsChanged,
   required AsyncBoolChanged onUse24HourChanged,
   required AsyncBoolChanged onAlwaysOnTopChanged,
 }) {
   AppLanguage currentLanguage = language;
+  CommentAlignment currentCommentAlignment = commentAlignment;
   bool currentShowCurrentTime = showCurrentTime;
   bool currentShowCurrentSeconds = showCurrentSeconds;
   bool currentUse24Hour = use24Hour;
@@ -39,6 +45,7 @@ Future<void> showSettingsSheet({
         builder: (context, updateSheet) {
           Future<void> updateShowCurrentTime(bool value) async {
             await onShowCurrentTimeChanged(value);
+
             if (sheetContext.mounted) {
               updateSheet(() {
                 currentShowCurrentTime = value;
@@ -48,6 +55,7 @@ Future<void> showSettingsSheet({
 
           Future<void> updateShowCurrentSeconds(bool value) async {
             await onShowCurrentSecondsChanged(value);
+
             if (sheetContext.mounted) {
               updateSheet(() {
                 currentShowCurrentSeconds = value;
@@ -57,6 +65,7 @@ Future<void> showSettingsSheet({
 
           Future<void> updateUse24Hour(bool value) async {
             await onUse24HourChanged(value);
+
             if (sheetContext.mounted) {
               updateSheet(() {
                 currentUse24Hour = value;
@@ -66,6 +75,7 @@ Future<void> showSettingsSheet({
 
           Future<void> updateAlwaysOnTop(bool value) async {
             await onAlwaysOnTopChanged(value);
+
             if (sheetContext.mounted) {
               updateSheet(() {
                 currentIsAlwaysOnTop = value;
@@ -75,9 +85,20 @@ Future<void> showSettingsSheet({
 
           Future<void> updateLanguage(AppLanguage value) async {
             await onLanguageChanged(value);
+
             if (sheetContext.mounted) {
               updateSheet(() {
                 currentLanguage = value;
+              });
+            }
+          }
+
+          Future<void> updateCommentAlignment(CommentAlignment value) async {
+            await onCommentAlignmentChanged(value);
+
+            if (sheetContext.mounted) {
+              updateSheet(() {
+                currentCommentAlignment = value;
               });
             }
           }
@@ -116,7 +137,9 @@ Future<void> showSettingsSheet({
                               borderRadius: BorderRadius.circular(99),
                             ),
                           ),
+
                           const SizedBox(height: 20),
+
                           Text(
                             translate('表示設定', 'Display Settings'),
                             style: const TextStyle(
@@ -125,13 +148,25 @@ Future<void> showSettingsSheet({
                               fontWeight: FontWeight.w700,
                             ),
                           ),
+
                           const SizedBox(height: 18),
+
                           _LanguageSelector(
                             language: currentLanguage,
                             translate: translate,
                             onChanged: updateLanguage,
                           ),
+
                           const SizedBox(height: 12),
+
+                          _CommentAlignmentSelector(
+                            alignment: currentCommentAlignment,
+                            translate: translate,
+                            onChanged: updateCommentAlignment,
+                          ),
+
+                          const SizedBox(height: 12),
+
                           _SettingSwitch(
                             title: translate('現在時刻を表示', 'Show Current Time'),
                             subtitle: translate(
@@ -141,7 +176,9 @@ Future<void> showSettingsSheet({
                             value: currentShowCurrentTime,
                             onChanged: updateShowCurrentTime,
                           ),
+
                           const SizedBox(height: 8),
+
                           _SettingSwitch(
                             title: translate(
                               '現在時刻に秒を表示',
@@ -155,7 +192,9 @@ Future<void> showSettingsSheet({
                             enabled: currentShowCurrentTime,
                             onChanged: updateShowCurrentSeconds,
                           ),
+
                           const SizedBox(height: 8),
+
                           _SettingSwitch(
                             title: translate('24時間表記', '24-Hour Format'),
                             subtitle: currentUse24Hour
@@ -171,6 +210,7 @@ Future<void> showSettingsSheet({
                             enabled: currentShowCurrentTime,
                             onChanged: updateUse24Hour,
                           ),
+
                           if (showAlwaysOnTopOption) ...[
                             const Padding(
                               padding: EdgeInsets.symmetric(vertical: 16),
@@ -186,7 +226,9 @@ Future<void> showSettingsSheet({
                               onChanged: updateAlwaysOnTop,
                             ),
                           ],
+
                           const SizedBox(height: 18),
+
                           SizedBox(
                             width: double.infinity,
                             height: 48,
@@ -272,7 +314,9 @@ class _LanguageSelector extends StatelessWidget {
               ],
             ),
           ),
+
           const SizedBox(width: 12),
+
           ToggleButtons(
             isSelected: [
               language == AppLanguage.japanese,
@@ -291,6 +335,117 @@ class _LanguageSelector extends StatelessWidget {
             borderColor: Colors.white24,
             selectedBorderColor: const Color(0xFF69F0AE),
             children: const [Text('日本語'), Text('EN')],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CommentAlignmentSelector extends StatelessWidget {
+  const _CommentAlignmentSelector({
+    required this.alignment,
+    required this.translate,
+    required this.onChanged,
+  });
+
+  final CommentAlignment alignment;
+  final String Function(String japanese, String english) translate;
+  final ValueChanged<CommentAlignment> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF222222),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            translate('コメント位置', 'Comment Alignment'),
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+
+          const SizedBox(height: 3),
+
+          Text(
+            translate(
+              '表示コメントの文字揃えを選択します',
+              'Choose the alignment of the display comment.',
+            ),
+            style: const TextStyle(
+              color: Colors.white54,
+              fontSize: 13,
+              height: 1.25,
+            ),
+          ),
+
+          const SizedBox(height: 10),
+
+          SizedBox(
+            width: double.infinity,
+            child: Center(
+              child: ToggleButtons(
+                isSelected: [
+                  alignment == CommentAlignment.left,
+                  alignment == CommentAlignment.center,
+                  alignment == CommentAlignment.right,
+                ],
+                onPressed: (index) {
+                  switch (index) {
+                    case 0:
+                      onChanged(CommentAlignment.left);
+                      break;
+                    case 1:
+                      onChanged(CommentAlignment.center);
+                      break;
+                    case 2:
+                      onChanged(CommentAlignment.right);
+                      break;
+                  }
+                },
+                borderRadius: BorderRadius.circular(9),
+                constraints: const BoxConstraints(minWidth: 82, minHeight: 38),
+                color: Colors.white70,
+                selectedColor: Colors.black,
+                fillColor: const Color(0xFF69F0AE),
+                borderColor: Colors.white24,
+                selectedBorderColor: const Color(0xFF69F0AE),
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.format_align_left, size: 17),
+                      const SizedBox(width: 5),
+                      Text(translate('左', 'Left')),
+                    ],
+                  ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.format_align_center, size: 17),
+                      const SizedBox(width: 5),
+                      Text(translate('中央', 'Center')),
+                    ],
+                  ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.format_align_right, size: 17),
+                      const SizedBox(width: 5),
+                      Text(translate('右', 'Right')),
+                    ],
+                  ),
+                ],
+              ),
+            ),
           ),
         ],
       ),
@@ -350,7 +505,9 @@ class _SettingSwitch extends StatelessWidget {
                 ],
               ),
             ),
+
             const SizedBox(width: 12),
+
             Switch(
               value: value,
               onChanged: enabled ? onChanged : null,

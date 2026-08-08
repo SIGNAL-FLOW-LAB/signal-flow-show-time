@@ -8,6 +8,7 @@ import 'package:window_manager/window_manager.dart';
 import '../controllers/show_time_menu_controller.dart';
 import '../controllers/show_timer_controller.dart';
 import '../models/app_language.dart';
+import '../models/comment_alignment.dart';
 import '../models/show_timer_status.dart';
 import '../platform/platform_support.dart';
 import '../services/session_service.dart';
@@ -58,6 +59,8 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
 
   AppLanguage _language = AppLanguage.japanese;
 
+  CommentAlignment _commentAlignment = CommentAlignment.center;
+
   bool _controlsVisible = true;
 
   @override
@@ -92,6 +95,14 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
     unawaited(_loadSavedTimerState());
   }
 
+  Future<void> _setCommentAlignment(CommentAlignment value) async {
+    setState(() {
+      _commentAlignment = value;
+    });
+
+    await _settingsService.saveCommentAlignment(value);
+  }
+
   Future<void> _loadSavedSettings() async {
     final settings = await _settingsService.load();
 
@@ -110,6 +121,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
       _showCurrentSeconds = settings.showCurrentSeconds;
       _use24Hour = settings.use24Hour;
       _language = settings.language;
+      _commentAlignment = settings.commentAlignment;
     });
 
     widget.menuController.language.value = _language;
@@ -518,12 +530,14 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
     showSettingsSheet(
       context: context,
       language: _language,
+      commentAlignment: _commentAlignment,
       showCurrentTime: _showCurrentTime,
       showCurrentSeconds: _showCurrentSeconds,
       use24Hour: _use24Hour,
       isAlwaysOnTop: _isAlwaysOnTop,
       showAlwaysOnTopOption: isDesktopPlatform,
       onLanguageChanged: _setLanguage,
+      onCommentAlignmentChanged: _setCommentAlignment,
       onShowCurrentTimeChanged: _setShowCurrentTime,
       onShowCurrentSecondsChanged: _setShowCurrentSeconds,
       onUse24HourChanged: _setUse24Hour,
@@ -612,11 +626,20 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
   Widget _buildShowTitle({
     required double fontSize,
     required double availableWidth,
+    int maxLines = 2,
   }) {
+    final textAlign = switch (_commentAlignment) {
+      CommentAlignment.left => TextAlign.left,
+      CommentAlignment.center => TextAlign.center,
+      CommentAlignment.right => TextAlign.right,
+    };
+
     return ShowTitle(
       title: _showTitle,
       fontSize: fontSize,
       availableWidth: availableWidth,
+      maxLines: maxLines,
+      textAlign: textAlign,
       emptyTitleLabel: _t('コメントを入力', 'Enter Comment'),
       editTitleLabel: _t('表示コメントを編集', 'Edit Display Comment'),
       onBeginEditing: _showTitleEditDialog,
@@ -663,35 +686,84 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
                     ).bottom;
                     final isKeyboardVisible = keyboardHeight > 0;
 
+                    final shortestSide = width < height ? width : height;
+
+                    // iPhone縦画面と同程度の折り返し幅
+                    final portraitEquivalentPadding = _clamp(
+                      shortestSide * 0.035,
+                      12,
+                      80,
+                    );
+
+                    final portraitEquivalentTitleWidth =
+                        shortestSide - (portraitEquivalentPadding * 2);
+
+                    final isPhone = shortestSide < 600;
+
+                    final isPhonePortrait =
+                        isPhone && height > width && height >= 600;
+
+                    final isPhoneLandscape = isPhone && width > height;
+
                     final isNarrow = width < 600;
                     final isCompactHeight = height < 600;
                     final isLargeDesktop = width >= 1100 && height >= 700;
                     final isVeryLargeDesktop = width >= 1400 && height >= 850;
 
-                    final shortestSide = width < height ? width : height;
-
                     final horizontalPadding = _clamp(
-                      width * (isNarrow ? 0.045 : 0.06),
+                      width *
+                          (isPhoneLandscape
+                              ? 0.025
+                              : isPhonePortrait
+                              ? 0.035
+                              : isNarrow
+                              ? 0.045
+                              : 0.060),
                       12,
                       80,
                     );
 
-                    final verticalPadding = isCompactHeight ? 6.0 : 12.0;
+                    final verticalPadding = isPhoneLandscape
+                        ? 4.0
+                        : isPhonePortrait
+                        ? 6.0
+                        : isCompactHeight
+                        ? 6.0
+                        : 12.0;
+
                     final titleWidth = width - (horizontalPadding * 2);
 
-                    final titleFontSize = isCompactHeight
+                    final landscapeCenterGap = _clamp(width * 0.025, 14, 28);
+
+                    final landscapeLeftWidth =
+                        (titleWidth - landscapeCenterGap) * (4 / 9);
+
+                    final landscapeRightWidth =
+                        (titleWidth - landscapeCenterGap) * (5 / 9);
+
+                    final titleFontSize = isPhoneLandscape
+                        ? _clamp(shortestSide * 0.050, 16, 20)
+                        : isPhonePortrait
+                        ? _clamp(width * 0.050, 17, 21)
+                        : isCompactHeight
                         ? _clamp(shortestSide * 0.045, 15, 22)
                         : isNarrow
                         ? _clamp(width * 0.052, 17, 25)
                         : _clamp(width * 0.032, 32, 42);
 
-                    final labelFontSize = isCompactHeight
+                    final labelFontSize = isPhoneLandscape
+                        ? _clamp(shortestSide * 0.034, 11, 15)
+                        : isCompactHeight
                         ? _clamp(shortestSide * 0.034, 11, 16)
                         : isNarrow
                         ? _clamp(width * 0.036, 12, 18)
                         : _clamp(width * 0.020, 14, 28);
 
-                    final currentTimeFontSize = isCompactHeight
+                    final currentTimeFontSize = isPhoneLandscape
+                        ? _clamp(shortestSide * 0.155, 52, 66)
+                        : isPhonePortrait
+                        ? _clamp(width * 0.155, 52, 66)
+                        : isCompactHeight
                         ? _clamp(shortestSide * 0.145, 38, 60)
                         : isNarrow
                         ? _clamp(width * 0.14, 46, 72)
@@ -707,63 +779,214 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
                       showTimeScale *= 1.08;
                     }
 
-                    final baseShowTimeFontSize = isCompactHeight
+                    final baseShowTimeFontSize = isPhoneLandscape
+                        ? _clamp(shortestSide * 0.205, 72, 92)
+                        : isPhonePortrait
+                        ? _clamp(width * 0.205, 72, 92)
+                        : isCompactHeight
                         ? _clamp(shortestSide * 0.16, 38, 66)
                         : isNarrow
                         ? _clamp(width * 0.16, 48, 82)
                         : _clamp(width * 0.135, 68, 165);
 
-                    // v0.16:
-                    // PAUSEボタンの表示・非表示に関係なく、
-                    // カウンターは常に同じ大きさを維持します。
                     final showTimeFontSize = _clamp(
                       baseShowTimeFontSize * showTimeScale * 1.20,
                       38,
-                      isVeryLargeDesktop ? 245 : 215,
+                      isPhoneLandscape
+                          ? 110
+                          : isVeryLargeDesktop
+                          ? 245
+                          : 215,
                     );
 
                     final titleGap = _clamp(
-                      height * (isCompactHeight ? 0.014 : 0.028),
+                      height *
+                          (isPhoneLandscape
+                              ? 0.025
+                              : isPhonePortrait
+                              ? 0.018
+                              : isCompactHeight
+                              ? 0.014
+                              : 0.028),
                       6,
                       26,
                     );
 
                     final sectionGap = _clamp(
-                      height * (isCompactHeight ? 0.020 : 0.032),
-
+                      height *
+                          (isPhoneLandscape
+                              ? 0.050
+                              : isPhonePortrait
+                              ? 0.024
+                              : isCompactHeight
+                              ? 0.020
+                              : 0.032),
                       8,
                       30,
                     );
 
-                    final labelGap = _clamp(height * 0.012, 5, 14);
-
-                    final buttonTopGap = _clamp(
-                      height * (isCompactHeight ? 0.016 : 0.026),
-
-                      6,
-
-                      24,
+                    final labelGap = _clamp(
+                      height *
+                          (isPhoneLandscape
+                              ? 0.018
+                              : isPhonePortrait
+                              ? 0.009
+                              : 0.012),
+                      5,
+                      14,
                     );
 
-                    final buttonWidth = isCompactHeight
+                    final buttonTopGap = _clamp(
+                      height *
+                          (isPhoneLandscape
+                              ? 0.055
+                              : isPhonePortrait
+                              ? 0.020
+                              : isCompactHeight
+                              ? 0.016
+                              : 0.026),
+                      8,
+                      26,
+                    );
+
+                    final buttonWidth = isPhoneLandscape
+                        ? _clamp(landscapeLeftWidth * 0.78, 180, 280)
+                        : isPhonePortrait
+                        ? _clamp(width * 0.72, 250, 330)
+                        : isCompactHeight
                         ? _clamp(width * 0.30, 140, 220)
                         : isNarrow
                         ? _clamp(width * 0.55, 170, 240)
                         : _clamp(width * 0.30, 210, 360);
 
-                    final buttonHeight = isCompactHeight
+                    final buttonHeight = isPhoneLandscape
+                        ? _clamp(height * 0.15, 48, 62)
+                        : isPhonePortrait
+                        ? _clamp(height * 0.072, 58, 70)
+                        : isCompactHeight
                         ? _clamp(height * 0.13, 44, 54)
                         : _clamp(height * 0.085, 50, 82);
 
-                    final buttonFontSize = isCompactHeight
+                    final buttonFontSize = isPhoneLandscape
+                        ? _clamp(shortestSide * 0.048, 17, 22)
+                        : isPhonePortrait
+                        ? _clamp(width * 0.055, 20, 24)
+                        : isCompactHeight
                         ? _clamp(shortestSide * 0.048, 16, 21)
                         : isNarrow
                         ? _clamp(width * 0.048, 18, 25)
                         : _clamp(width * 0.026, 21, 34);
 
+                    final phonePortraitTopOffset = isPhonePortrait
+                        ? _clamp(height * 0.078, 36, 48)
+                        : 0.0;
+
+                    final phonePortraitButtonGap = isPhonePortrait
+                        ? _clamp(height * 0.120, 58, 90)
+                        : buttonTopGap;
+
                     final contentMinHeight = isKeyboardVisible
                         ? 0.0
                         : height - (verticalPadding * 2);
+
+                    final controlsAreVisible =
+                        _controlsVisible &&
+                        !_isTitleDialogOpen &&
+                        !_isSettingsOpen &&
+                        !_isAboutOpen;
+
+                    // -----------------------------------------------------------
+                    // iPhone横画面・左側
+                    // コメント＋操作ボタン
+                    // -----------------------------------------------------------
+
+                    final landscapeControlsPanel = Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        _buildShowTitle(
+                          fontSize: titleFontSize,
+                          availableWidth:
+                              landscapeLeftWidth - 8 <
+                                  portraitEquivalentTitleWidth
+                              ? landscapeLeftWidth - 8
+                              : portraitEquivalentTitleWidth,
+                          maxLines: 6,
+                        ),
+
+                        SizedBox(height: buttonTopGap),
+
+                        SizedBox(
+                          width: buttonWidth,
+                          height: buttonHeight,
+                          child: AnimatedSwitcher(
+                            duration: Duration.zero,
+                            child: MainControls(
+                              status: _timerController.status,
+                              controlsVisible: controlsAreVisible,
+                              width: buttonWidth,
+                              height: buttonHeight,
+                              fontSize: buttonFontSize,
+                              onStart: _startShowTime,
+                              onPause: _pauseShowTime,
+                              onResume: _resumeShowTime,
+                              resetButton: HoldResetButton(
+                                width: (buttonWidth - 12) / 2,
+                                height: buttonHeight,
+                                fontSize: buttonFontSize,
+                                onReset: _resetShowTime,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+
+                    // -----------------------------------------------------------
+                    // iPhone横画面・右側
+                    // 現在時刻＋公演時間
+                    // -----------------------------------------------------------
+
+                    final landscapeTimePanel = Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        if (_showCurrentTime) ...[
+                          CurrentTimeDisplay(
+                            label: _t('現在時刻', 'CURRENT TIME'),
+                            showSeconds: _showCurrentSeconds,
+                            use24Hour: _use24Hour,
+                            labelFontSize: labelFontSize,
+                            timeFontSize: currentTimeFontSize,
+                            labelGap: labelGap,
+                          ),
+
+                          SizedBox(height: sectionGap),
+                        ],
+
+                        Text(
+                          _t('公演時間', 'SHOW TIME'),
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: labelFontSize,
+                          ),
+                        ),
+
+                        SizedBox(height: labelGap),
+
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: SizedBox(
+                            width: landscapeRightWidth,
+                            child: Center(
+                              child: ShowElapsedDisplay(
+                                elapsed: _timerController.elapsed,
+                                color: _showTimeColor,
+                                fontSize: showTimeFontSize,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
 
                     return AnimatedPadding(
                       duration: const Duration(milliseconds: 220),
@@ -783,89 +1006,173 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
                                 ? 0
                                 : contentMinHeight,
                           ),
-                          child: Column(
-                            mainAxisAlignment: isKeyboardVisible
-                                ? MainAxisAlignment.start
-                                : MainAxisAlignment.center,
-                            children: [
-                              _buildShowTitle(
-                                fontSize: titleFontSize,
-                                availableWidth: titleWidth,
-                              ),
 
-                              SizedBox(height: titleGap),
-
-                              AnimatedSize(
-                                duration: const Duration(milliseconds: 220),
-                                curve: Curves.easeOutCubic,
-                                child: _showCurrentTime
-                                    ? Column(
-                                        children: [
-                                          CurrentTimeDisplay(
-                                            label: _t('現在時刻', 'CURRENT TIME'),
-                                            showSeconds: _showCurrentSeconds,
-                                            use24Hour: _use24Hour,
-                                            labelFontSize: labelFontSize,
-                                            timeFontSize: currentTimeFontSize,
-                                            labelGap: labelGap,
-                                          ),
-                                          SizedBox(height: sectionGap),
-                                        ],
-                                      )
-                                    : const SizedBox.shrink(),
-                              ),
-
-                              Text(
-                                _t('公演時間', 'SHOW TIME'),
-                                style: TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: labelFontSize,
-                                ),
-                              ),
-
-                              SizedBox(height: labelGap),
-
-                              ShowElapsedDisplay(
-                                elapsed: _timerController.elapsed,
-                                color: _showTimeColor,
-                                fontSize: showTimeFontSize,
-                              ),
-
-                              SizedBox(height: buttonTopGap),
-
-                              // 固定領域を確保するため、PAUSEが消えても
-                              // カウンター位置とサイズは変化しません。
-                              SizedBox(
-                                width: buttonWidth,
-                                height: buttonHeight,
-                                child: AnimatedSwitcher(
-                                  duration: Duration.zero,
-                                  child: MainControls(
-                                    status: _timerController.status,
-                                    controlsVisible:
-                                        _controlsVisible &&
-                                        !_isTitleDialogOpen &&
-                                        !_isSettingsOpen &&
-                                        !_isAboutOpen,
-                                    width: buttonWidth,
-                                    height: buttonHeight,
-                                    fontSize: buttonFontSize,
-                                    onStart: _startShowTime,
-                                    onPause: _pauseShowTime,
-                                    onResume: _resumeShowTime,
-                                    resetButton: HoldResetButton(
-                                      width: (buttonWidth - 12) / 2,
-                                      height: buttonHeight,
-                                      fontSize: buttonFontSize,
-                                      onReset: _resetShowTime,
+                          // -----------------------------------------------------
+                          // iPhone横画面だけRow
+                          // それ以外は従来のColumn
+                          // -----------------------------------------------------
+                          child: isPhoneLandscape
+                              ? Row(
+                                  children: [
+                                    Expanded(
+                                      flex: 4,
+                                      child: landscapeControlsPanel,
                                     ),
-                                  ),
-                                ),
-                              ),
 
-                              const SizedBox(height: 8),
-                            ],
-                          ),
+                                    SizedBox(width: landscapeCenterGap),
+
+                                    Expanded(
+                                      flex: 5,
+                                      child: landscapeTimePanel,
+                                    ),
+                                  ],
+                                )
+                              : Column(
+                                  mainAxisAlignment: isKeyboardVisible
+                                      ? MainAxisAlignment.start
+                                      : MainAxisAlignment.center,
+
+                                  children: [
+                                    if (isPhonePortrait && !isKeyboardVisible)
+                                      SizedBox(height: phonePortraitTopOffset),
+
+                                    Transform.translate(
+                                      offset: Offset(
+                                        0,
+
+                                        isPhonePortrait && !isKeyboardVisible
+                                            ? -phonePortraitTopOffset
+                                            : 0,
+                                      ),
+
+                                      child: Column(
+                                        children: [
+                                          _buildShowTitle(
+                                            fontSize: titleFontSize,
+
+                                            availableWidth: titleWidth,
+
+                                            maxLines:
+                                                isPhonePortrait ||
+                                                    isPhoneLandscape
+                                                ? 6
+                                                : 2,
+                                          ),
+
+                                          SizedBox(height: titleGap),
+
+                                          AnimatedSize(
+                                            duration: const Duration(
+                                              milliseconds: 220,
+                                            ),
+
+                                            curve: Curves.easeOutCubic,
+
+                                            child: _showCurrentTime
+                                                ? Column(
+                                                    children: [
+                                                      CurrentTimeDisplay(
+                                                        label: _t(
+                                                          '現在時刻',
+                                                          'CURRENT TIME',
+                                                        ),
+
+                                                        showSeconds:
+                                                            _showCurrentSeconds,
+
+                                                        use24Hour: _use24Hour,
+
+                                                        labelFontSize:
+                                                            labelFontSize,
+
+                                                        timeFontSize:
+                                                            currentTimeFontSize,
+
+                                                        labelGap: labelGap,
+                                                      ),
+
+                                                      SizedBox(
+                                                        height: sectionGap,
+                                                      ),
+                                                    ],
+                                                  )
+                                                : const SizedBox.shrink(),
+                                          ),
+
+                                          Text(
+                                            _t('公演時間', 'SHOW TIME'),
+
+                                            style: TextStyle(
+                                              color: Colors.white70,
+
+                                              fontSize: labelFontSize,
+                                            ),
+                                          ),
+
+                                          SizedBox(height: labelGap),
+
+                                          ShowElapsedDisplay(
+                                            elapsed: _timerController.elapsed,
+
+                                            color: _showTimeColor,
+
+                                            fontSize: showTimeFontSize,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+
+                                    SizedBox(
+                                      height: isPhonePortrait
+                                          ? phonePortraitButtonGap
+                                          : buttonTopGap,
+                                    ),
+
+                                    SizedBox(
+                                      width: buttonWidth,
+
+                                      height: buttonHeight,
+
+                                      child: AnimatedSwitcher(
+                                        duration: Duration.zero,
+
+                                        child: MainControls(
+                                          status: _timerController.status,
+
+                                          controlsVisible:
+                                              _controlsVisible &&
+                                              !_isTitleDialogOpen &&
+                                              !_isSettingsOpen &&
+                                              !_isAboutOpen,
+
+                                          width: buttonWidth,
+
+                                          height: buttonHeight,
+
+                                          fontSize: buttonFontSize,
+
+                                          onStart: _startShowTime,
+
+                                          onPause: _pauseShowTime,
+
+                                          onResume: _resumeShowTime,
+
+                                          resetButton: HoldResetButton(
+                                            width: (buttonWidth - 12) / 2,
+
+                                            height: buttonHeight,
+
+                                            fontSize: buttonFontSize,
+
+                                            onReset: _resetShowTime,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+
+                                    const SizedBox(height: 8),
+                                  ],
+                                ),
                         ),
                       ),
                     );
@@ -932,6 +1239,7 @@ class _ShowCommentEditDialogState extends State<_ShowCommentEditDialog> {
   @override
   void initState() {
     super.initState();
+
     _controller = TextEditingController(text: widget.initialText);
     _focusNode = FocusNode();
 
@@ -941,6 +1249,7 @@ class _ShowCommentEditDialogState extends State<_ShowCommentEditDialog> {
       }
 
       _focusNode.requestFocus();
+
       _controller.selection = TextSelection(
         baseOffset: 0,
         extentOffset: _controller.text.length,
@@ -965,54 +1274,144 @@ class _ShowCommentEditDialogState extends State<_ShowCommentEditDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final screenSize = MediaQuery.sizeOf(context);
+    final mediaQuery = MediaQuery.of(context);
+    final screenSize = mediaQuery.size;
+    final keyboardHeight = mediaQuery.viewInsets.bottom;
+
     final isTablet = screenSize.shortestSide >= 600;
+    final isPhone = !isTablet;
+
+    final isPhonePortrait = isPhone && screenSize.height > screenSize.width;
+
+    final isPhoneLandscape = isPhone && screenSize.width > screenSize.height;
+
+    // iPhone縦・横は最大6行。
+    // iPad・Macは従来どおり最大2行。
+    final maxCommentLines = isPhone ? 6 : 2;
+
+    // 横画面では初期表示を2行に抑えます。
+    final minCommentLines = isPhoneLandscape
+        ? 2
+        : isPhonePortrait
+        ? 4
+        : 2;
+
+    // iPhoneは100文字、iPad・Macは80文字。
+    final maxCommentLength = isPhone ? 100 : 80;
+
+    // 画面からキーボード領域を引いた使用可能高さ。
+    final availableHeight =
+        screenSize.height - keyboardHeight - (isPhoneLandscape ? 8 : 32);
+
+    // 明示的な改行が最大行数を超えないようにします。
+    final lineLimitFormatter = TextInputFormatter.withFunction((
+      oldValue,
+      newValue,
+    ) {
+      final lineCount = '\n'.allMatches(newValue.text).length + 1;
+
+      if (lineCount > maxCommentLines) {
+        return oldValue;
+      }
+
+      return newValue;
+    });
 
     return Dialog(
       backgroundColor: const Color(0xFF171717),
+
+      // 横画面では余白を小さくします。
       insetPadding: EdgeInsets.symmetric(
-        horizontal: isTablet ? 80 : 24,
-        vertical: 24,
+        horizontal: isTablet
+            ? 80
+            : isPhoneLandscape
+            ? 12
+            : 24,
+        vertical: isPhoneLandscape ? 4 : 24,
       ),
+
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(isPhoneLandscape ? 18 : 22),
         side: const BorderSide(color: Colors.white12),
       ),
+
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 680),
-        child: SingleChildScrollView(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom,
+        constraints: BoxConstraints(
+          maxWidth: isPhoneLandscape ? 900 : 680,
+          maxHeight: availableHeight > 0 ? availableHeight : screenSize.height,
+        ),
+
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            isTablet
+                ? 32
+                : isPhoneLandscape
+                ? 20
+                : 22,
+            isTablet
+                ? 30
+                : isPhoneLandscape
+                ? 12
+                : 22,
+            isTablet
+                ? 32
+                : isPhoneLandscape
+                ? 20
+                : 22,
+            isTablet
+                ? 24
+                : isPhoneLandscape
+                ? 12
+                : 18,
           ),
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(
-              isTablet ? 32 : 22,
-              isTablet ? 30 : 22,
-              isTablet ? 32 : 22,
-              isTablet ? 24 : 18,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  _t('表示コメントを編集', 'Edit Display Comment'),
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: isTablet ? 24 : 20,
-                    fontWeight: FontWeight.w700,
-                  ),
+
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // タイトル
+              Text(
+                _t('表示コメントを編集', 'Edit Display Comment'),
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: isTablet
+                      ? 24
+                      : isPhoneLandscape
+                      ? 18
+                      : 20,
+                  fontWeight: FontWeight.w700,
                 ),
-                SizedBox(height: isTablet ? 12 : 10),
+              ),
+
+              SizedBox(
+                height: isPhoneLandscape
+                    ? 8
+                    : isTablet
+                    ? 12
+                    : 10,
+              ),
+
+              // 横画面では説明文を非表示
+              if (!isPhoneLandscape) ...[
                 Text(
-                  _t(
-                    '公演名、会場名、演目、連絡事項など、表示したい内容を自由に入力できます。\n'
-                        '最大2行・80文字まで入力できます。',
-                    'Enter any message you want to display, such as a show name, '
-                        'venue, program, or note.\n'
-                        'Up to 2 lines and 80 characters.',
-                  ),
+                  isPhonePortrait
+                      ? _t(
+                          '公演名、会場名、演目、連絡事項など、'
+                              '表示したい内容を自由に入力できます。\n'
+                              'iPhoneでは最大6行・100文字まで入力できます。',
+                          'Enter any message you want to display, '
+                              'such as a show name, venue, program, or note.\n'
+                              'On iPhone, up to 6 lines and 100 characters.',
+                        )
+                      : _t(
+                          '公演名、会場名、演目、連絡事項など、'
+                              '表示したい内容を自由に入力できます。\n'
+                              '最大2行・80文字まで入力できます。',
+                          'Enter any message you want to display, '
+                              'such as a show name, venue, program, or note.\n'
+                              'Up to 2 lines and 80 characters.',
+                        ),
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: Colors.white54,
@@ -1021,101 +1420,158 @@ class _ShowCommentEditDialogState extends State<_ShowCommentEditDialog> {
                   ),
                 ),
                 SizedBox(height: isTablet ? 18 : 14),
-                TextField(
-                  controller: _controller,
-                  focusNode: _focusNode,
-                  autofocus: true,
-                  minLines: 2,
-                  maxLines: 2,
-                  maxLength: 80,
-                  keyboardType: TextInputType.multiline,
-                  textInputAction: TextInputAction.newline,
-                  onChanged: (text) {
-                    final lines = text.split('\n');
+              ],
 
-                    // 2行目でEnterが押されたら保存
-                    if (lines.length >= 3) {
-                      _save();
-                    }
-                  },
+              // 入力欄部分だけスクロール可能
+              Flexible(
+                child: SingleChildScrollView(
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
+                  child: TextField(
+                    controller: _controller,
+                    focusNode: _focusNode,
+                    autofocus: true,
 
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: isTablet ? 28 : 22,
-                    fontWeight: FontWeight.w600,
-                    height: 1.3,
-                  ),
-                  decoration: InputDecoration(
-                    hintText: _t(
-                      '例：公演名・会場名\n連絡事項やメモ',
-                      'Example: Show or Venue\nMessage or Note',
-                    ),
-                    hintStyle: TextStyle(
-                      color: Colors.white30,
-                      fontSize: isTablet ? 22 : 18,
-                      fontWeight: FontWeight.w400,
+                    minLines: minCommentLines,
+                    maxLines: maxCommentLines,
+                    maxLength: maxCommentLength,
+
+                    inputFormatters: [
+                      lineLimitFormatter,
+                      LengthLimitingTextInputFormatter(maxCommentLength),
+                    ],
+
+                    keyboardType: TextInputType.multiline,
+                    textInputAction: TextInputAction.newline,
+
+                    textAlign: TextAlign.center,
+
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: isTablet
+                          ? 28
+                          : isPhoneLandscape
+                          ? 18
+                          : 22,
+                      fontWeight: FontWeight.w600,
                       height: 1.3,
                     ),
-                    counterStyle: const TextStyle(color: Colors.white38),
-                    filled: true,
-                    fillColor: const Color(0xFF222222),
-                    contentPadding: EdgeInsets.symmetric(
-                      horizontal: isTablet ? 22 : 16,
-                      vertical: isTablet ? 24 : 18,
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      borderSide: const BorderSide(color: Colors.white24),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      borderSide: const BorderSide(
-                        color: Color(0xFF69F0AE),
-                        width: 1.5,
+
+                    decoration: InputDecoration(
+                      hintText: _t(
+                        '例：公演名・会場名\n連絡事項やメモ',
+                        'Example: Show or Venue\nMessage or Note',
+                      ),
+
+                      hintStyle: TextStyle(
+                        color: Colors.white30,
+                        fontSize: isTablet
+                            ? 22
+                            : isPhoneLandscape
+                            ? 16
+                            : 18,
+                        fontWeight: FontWeight.w400,
+                        height: 1.3,
+                      ),
+
+                      counterStyle: const TextStyle(color: Colors.white38),
+
+                      filled: true,
+                      fillColor: const Color(0xFF222222),
+
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: isTablet
+                            ? 22
+                            : isPhoneLandscape
+                            ? 16
+                            : 16,
+                        vertical: isTablet
+                            ? 24
+                            : isPhoneLandscape
+                            ? 12
+                            : 18,
+                      ),
+
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: Colors.white24),
+                      ),
+
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(
+                          color: Color(0xFF69F0AE),
+                          width: 1.5,
+                        ),
                       ),
                     ),
                   ),
                 ),
-                SizedBox(height: isTablet ? 24 : 18),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: _cancel,
-                        style: OutlinedButton.styleFrom(
-                          minimumSize: Size(0, isTablet ? 58 : 50),
-                          foregroundColor: Colors.white70,
-                          side: const BorderSide(color: Colors.white24),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
+              ),
+
+              SizedBox(
+                height: isPhoneLandscape
+                    ? 8
+                    : isTablet
+                    ? 24
+                    : 18,
+              ),
+
+              // このRowはスクロール領域の外なので、
+              // キャンセル・保存ボタンが常に表示されます。
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: _cancel,
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: Size(
+                          0,
+                          isTablet
+                              ? 58
+                              : isPhoneLandscape
+                              ? 42
+                              : 50,
                         ),
-                        child: Text(_t('キャンセル', 'Cancel')),
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: FilledButton(
-                        onPressed: _save,
-                        style: FilledButton.styleFrom(
-                          minimumSize: Size(0, isTablet ? 58 : 50),
-                          backgroundColor: const Color(0xFF69F0AE),
-                          foregroundColor: Colors.black,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                        ),
-                        child: Text(
-                          _t('保存', 'Save'),
-                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        foregroundColor: Colors.white70,
+                        side: const BorderSide(color: Colors.white24),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
                         ),
                       ),
+                      child: Text(_t('キャンセル', 'Cancel')),
                     ),
-                  ],
-                ),
-              ],
-            ),
+                  ),
+
+                  SizedBox(width: isPhoneLandscape ? 10 : 14),
+
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: _save,
+                      style: FilledButton.styleFrom(
+                        minimumSize: Size(
+                          0,
+                          isTablet
+                              ? 58
+                              : isPhoneLandscape
+                              ? 42
+                              : 50,
+                        ),
+                        backgroundColor: const Color(0xFF69F0AE),
+                        foregroundColor: Colors.black,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      child: Text(
+                        _t('保存', 'Save'),
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
       ),
