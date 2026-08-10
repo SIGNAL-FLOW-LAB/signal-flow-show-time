@@ -56,7 +56,7 @@ class _CurrentTimeDisplayState extends State<CurrentTimeDisplay> {
 
   String _format(DateTime time) {
     if (widget.use24Hour) {
-      final hours = time.hour.toString().padLeft(2, '0');
+      final hours = time.hour.toString();
       final minutes = time.minute.toString().padLeft(2, '0');
       if (!widget.showSeconds) {
         return '$hours:$minutes';
@@ -70,7 +70,7 @@ class _CurrentTimeDisplayState extends State<CurrentTimeDisplay> {
     if (displayHour == 0) {
       displayHour = 12;
     }
-    final hours = displayHour.toString().padLeft(2, '0');
+    final hours = displayHour.toString();
     final minutes = time.minute.toString().padLeft(2, '0');
     if (!widget.showSeconds) {
       return '$hours:$minutes $period';

@@ -910,7 +910,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
                                   portraitEquivalentTitleWidth
                               ? landscapeLeftWidth - 8
                               : portraitEquivalentTitleWidth,
-                          maxLines: 6,
+                          maxLines: 8,
                         ),
 
                         SizedBox(height: buttonTopGap),
@@ -1055,7 +1055,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
                                             maxLines:
                                                 isPhonePortrait ||
                                                     isPhoneLandscape
-                                                ? 6
+                                                ? 8
                                                 : 2,
                                           ),
 
@@ -1285,9 +1285,9 @@ class _ShowCommentEditDialogState extends State<_ShowCommentEditDialog> {
 
     final isPhoneLandscape = isPhone && screenSize.width > screenSize.height;
 
-    // iPhone縦・横は最大6行。
+    // iPhone縦・横は最大8行。
     // iPad・Macは従来どおり最大2行。
-    final maxCommentLines = isPhone ? 6 : 2;
+    final maxCommentLines = isPhone ? 8 : 2;
 
     // 横画面では初期表示を2行に抑えます。
     final minCommentLines = isPhoneLandscape
@@ -1296,8 +1296,21 @@ class _ShowCommentEditDialogState extends State<_ShowCommentEditDialog> {
         ? 4
         : 2;
 
-    // iPhoneは100文字、iPad・Macは80文字。
-    final maxCommentLength = isPhone ? 100 : 80;
+    // iPhoneは140文字、iPad・Macは80文字。
+    final maxCommentLength = isPhone ? 140 : 80;
+
+    // ---------------------------------------------------------------------------
+    // 編集欄を実際の表示コメントに近づける
+    // ---------------------------------------------------------------------------
+
+    // 本画面のコメント表示に近い文字サイズ
+    final previewFontSize = isPhoneLandscape
+        ? (screenSize.shortestSide * 0.050).clamp(16.0, 20.0)
+        : isPhonePortrait
+        ? (screenSize.width * 0.050).clamp(17.0, 21.0)
+        : isTablet
+        ? (screenSize.width * 0.032).clamp(22.0, 32.0)
+        : 20.0;
 
     // 画面からキーボード領域を引いた使用可能高さ。
     final availableHeight =
@@ -1399,10 +1412,10 @@ class _ShowCommentEditDialogState extends State<_ShowCommentEditDialog> {
                       ? _t(
                           '公演名、会場名、演目、連絡事項など、'
                               '表示したい内容を自由に入力できます。\n'
-                              'iPhoneでは最大6行・100文字まで入力できます。',
+                              'iPhoneでは最大8行・140文字まで入力できます。',
                           'Enter any message you want to display, '
                               'such as a show name, venue, program, or note.\n'
-                              'On iPhone, up to 6 lines and 100 characters.',
+                              'On iPhone, up to 8 lines and 140 characters.',
                         )
                       : _t(
                           '公演名、会場名、演目、連絡事項など、'
@@ -1412,7 +1425,7 @@ class _ShowCommentEditDialogState extends State<_ShowCommentEditDialog> {
                               'such as a show name, venue, program, or note.\n'
                               'Up to 2 lines and 80 characters.',
                         ),
-                  textAlign: TextAlign.center,
+                  textAlign: TextAlign.left,
                   style: TextStyle(
                     color: Colors.white54,
                     fontSize: isTablet ? 15 : 13,
@@ -1422,6 +1435,7 @@ class _ShowCommentEditDialogState extends State<_ShowCommentEditDialog> {
                 SizedBox(height: isTablet ? 18 : 14),
               ],
 
+              // 入力欄部分だけスクロール可能
               // 入力欄部分だけスクロール可能
               Flexible(
                 child: SingleChildScrollView(
@@ -1444,15 +1458,13 @@ class _ShowCommentEditDialogState extends State<_ShowCommentEditDialog> {
                     keyboardType: TextInputType.multiline,
                     textInputAction: TextInputAction.newline,
 
-                    textAlign: TextAlign.center,
+                    // 編集画面では常に左寄せ
+                    textAlign: TextAlign.left,
 
+                    // 実際の表示コメントに近い文字サイズ
                     style: TextStyle(
                       color: Colors.white,
-                      fontSize: isTablet
-                          ? 28
-                          : isPhoneLandscape
-                          ? 18
-                          : 22,
+                      fontSize: previewFontSize,
                       fontWeight: FontWeight.w600,
                       height: 1.3,
                     ),
@@ -1465,11 +1477,7 @@ class _ShowCommentEditDialogState extends State<_ShowCommentEditDialog> {
 
                       hintStyle: TextStyle(
                         color: Colors.white30,
-                        fontSize: isTablet
-                            ? 22
-                            : isPhoneLandscape
-                            ? 16
-                            : 18,
+                        fontSize: previewFontSize,
                         fontWeight: FontWeight.w400,
                         height: 1.3,
                       ),
@@ -1480,16 +1488,8 @@ class _ShowCommentEditDialogState extends State<_ShowCommentEditDialog> {
                       fillColor: const Color(0xFF222222),
 
                       contentPadding: EdgeInsets.symmetric(
-                        horizontal: isTablet
-                            ? 22
-                            : isPhoneLandscape
-                            ? 16
-                            : 16,
-                        vertical: isTablet
-                            ? 24
-                            : isPhoneLandscape
-                            ? 12
-                            : 18,
+                        horizontal: isPhone ? 12 : 16,
+                        vertical: isPhone ? 14 : 18,
                       ),
 
                       enabledBorder: OutlineInputBorder(
