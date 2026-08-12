@@ -37,37 +37,22 @@ class ShowTitle extends StatelessWidget {
           constraints: BoxConstraints(minHeight: 64, maxWidth: availableWidth),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Flexible(
-                  child: Text(
-                    isEmpty ? emptyTitleLabel : title,
-                    maxLines: displayMaxLines,
-                    softWrap: true,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: textAlign,
-                    style: TextStyle(
-                      color: isEmpty ? Colors.white38 : Colors.white,
-                      fontSize: isEmpty ? fontSize * 0.72 : fontSize,
-                      fontWeight: isEmpty ? FontWeight.w400 : FontWeight.w600,
-                      height: 1.18,
-                      letterSpacing: 0.4,
-                    ),
-                  ),
+            child: SizedBox(
+              width: double.infinity,
+              child: Text(
+                isEmpty ? emptyTitleLabel : title,
+                maxLines: displayMaxLines,
+                softWrap: true,
+                overflow: TextOverflow.ellipsis,
+                textAlign: textAlign,
+                style: TextStyle(
+                  color: isEmpty ? Colors.white38 : Colors.white,
+                  fontSize: isEmpty ? fontSize * 0.72 : fontSize,
+                  fontWeight: isEmpty ? FontWeight.w400 : FontWeight.w600,
+                  height: 1.18,
+                  letterSpacing: 0.4,
                 ),
-                const SizedBox(width: 10),
-                Transform.translate(
-                  offset: const Offset(12, 0), // ← 鉛筆だけ12px右へ
-                  child: const Icon(
-                    Icons.edit_outlined,
-                    size: 20,
-                    color: Colors.white30,
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
         ),
