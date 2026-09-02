@@ -14,6 +14,9 @@ class MainControls extends StatelessWidget {
     required this.onPause,
     required this.onResume,
     required this.resetButton,
+    this.startLabel = 'START',
+    this.pauseLabel = 'PAUSE',
+    this.resumeLabel = 'RESUME',
   });
 
   final ShowTimerStatus status;
@@ -25,6 +28,9 @@ class MainControls extends StatelessWidget {
   final VoidCallback onPause;
   final VoidCallback onResume;
   final Widget resetButton;
+  final String startLabel;
+  final String pauseLabel;
+  final String resumeLabel;
 
   ButtonStyle _buttonStyle({
     required Color backgroundColor,
@@ -55,7 +61,7 @@ class MainControls extends StatelessWidget {
             ),
             onPressed: onStart,
             child: Text(
-              'START',
+              startLabel,
               style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w600),
             ),
           ),
@@ -79,7 +85,7 @@ class MainControls extends StatelessWidget {
                 ),
                 onPressed: onPause,
                 child: Text(
-                  'PAUSE',
+                  pauseLabel,
                   style: TextStyle(
                     fontSize: fontSize,
                     fontWeight: FontWeight.w700,
@@ -112,7 +118,7 @@ class MainControls extends StatelessWidget {
                   child: FittedBox(
                     fit: BoxFit.scaleDown,
                     child: Text(
-                      'RESUME',
+                      resumeLabel,
                       maxLines: 1,
                       softWrap: false,
                       style: TextStyle(

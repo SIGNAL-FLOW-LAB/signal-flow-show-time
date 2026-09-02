@@ -8,6 +8,8 @@ class HoldResetButton extends StatefulWidget {
     required this.fontSize,
     required this.onReset,
     this.holdDuration = const Duration(milliseconds: 1200),
+    this.resetLabel = 'RESET',
+    this.holdLabel = 'HOLD',
   });
 
   final double width;
@@ -15,6 +17,8 @@ class HoldResetButton extends StatefulWidget {
   final double fontSize;
   final VoidCallback onReset;
   final Duration holdDuration;
+  final String resetLabel;
+  final String holdLabel;
 
   @override
   State<HoldResetButton> createState() => _HoldResetButtonState();
@@ -139,7 +143,7 @@ class _HoldResetButtonState extends State<HoldResetButton>
                     child: FittedBox(
                       fit: BoxFit.scaleDown,
                       child: Text(
-                        _isHolding ? 'HOLD' : 'RESET',
+                        _isHolding ? widget.holdLabel : widget.resetLabel,
                         maxLines: 1,
                         softWrap: false,
                         style: TextStyle(

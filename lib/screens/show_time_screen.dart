@@ -597,7 +597,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
             iconSize: 23,
             splashRadius: 22,
             color: Colors.white54,
-            icon: const Icon(Icons.settings_outlined),
+            icon: const Icon(Icons.settings),
           ),
         ),
         if (isDesktopPlatform)
@@ -929,11 +929,16 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
                               onStart: _startShowTime,
                               onPause: _pauseShowTime,
                               onResume: _resumeShowTime,
+                              startLabel: _t('スタート', 'START'),
+                              pauseLabel: _t('一時停止', 'PAUSE'),
+                              resumeLabel: _t('再開', 'RESUME'),
                               resetButton: HoldResetButton(
                                 width: (buttonWidth - 12) / 2,
                                 height: buttonHeight,
                                 fontSize: buttonFontSize,
                                 onReset: _resetShowTime,
+                                resetLabel: _t('リセット', 'RESET'),
+                                holdLabel: _t('ホールド', 'HOLD'),
                               ),
                             ),
                           ),
@@ -1157,6 +1162,12 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
 
                                           onResume: _resumeShowTime,
 
+                                          startLabel: _t('スタート', 'START'),
+
+                                          pauseLabel: _t('一時停止', 'PAUSE'),
+
+                                          resumeLabel: _t('再開', 'RESUME'),
+
                                           resetButton: HoldResetButton(
                                             width: (buttonWidth - 12) / 2,
 
@@ -1165,6 +1176,10 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
                                             fontSize: buttonFontSize,
 
                                             onReset: _resetShowTime,
+
+                                            resetLabel: _t('リセット', 'RESET'),
+
+                                            holdLabel: _t('ホールド', 'HOLD'),
                                           ),
                                         ),
                                       ),
