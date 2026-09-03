@@ -14,9 +14,14 @@ class MainControls extends StatelessWidget {
     required this.onPause,
     required this.onResume,
     required this.resetButton,
+    this.breakFeatureEnabled = false,
+    this.onStartBreak,
+    this.onResumeFromBreakNow,
     this.startLabel = 'START',
     this.pauseLabel = 'PAUSE',
     this.resumeLabel = 'RESUME',
+    this.breakLabel = 'Start Break',
+    this.resumeFromBreakLabel = 'Resume Now',
   });
 
   final ShowTimerStatus status;
@@ -28,9 +33,14 @@ class MainControls extends StatelessWidget {
   final VoidCallback onPause;
   final VoidCallback onResume;
   final Widget resetButton;
+  final bool breakFeatureEnabled;
+  final VoidCallback? onStartBreak;
+  final VoidCallback? onResumeFromBreakNow;
   final String startLabel;
   final String pauseLabel;
   final String resumeLabel;
+  final String breakLabel;
+  final String resumeFromBreakLabel;
 
   ButtonStyle _buttonStyle({
     required Color backgroundColor,
@@ -68,6 +78,9 @@ class MainControls extends StatelessWidget {
         );
 
       case ShowTimerStatus.running:
+        final showBreakButton = breakFeatureEnabled && onStartBreak != null;
+        final pauseButtonWidth = showBreakButton ? (width - 12) / 2 : width;
+
         return AnimatedOpacity(
           key: const ValueKey('running-controls'),
           opacity: controlsVisible ? 1 : 0,
@@ -75,23 +88,101 @@ class MainControls extends StatelessWidget {
           curve: Curves.easeOut,
           child: IgnorePointer(
             ignoring: !controlsVisible,
-            child: SizedBox(
-              width: width,
-              height: height,
-              child: ElevatedButton(
-                style: _buttonStyle(
-                  backgroundColor: Colors.amber,
-                  foregroundColor: Colors.black,
-                ),
-                onPressed: onPause,
-                child: Text(
-                  pauseLabel,
-                  style: TextStyle(
-                    fontSize: fontSize,
-                    fontWeight: FontWeight.w700,
+            child: showBreakButton
+                ? Row(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      SizedBox(
+                        width: pauseButtonWidth,
+                        height: height,
+                        child: ElevatedButton(
+                          style: _buttonStyle(
+                            backgroundColor: Colors.amber,
+                            foregroundColor: Colors.black,
+                          ),
+                          onPressed: onPause,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                pauseLabel,
+                                maxLines: 1,
+                                softWrap: false,
+                                style: TextStyle(
+                                  fontSize: fontSize * 0.82,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      SizedBox(
+                        width: pauseButtonWidth,
+                        height: height,
+                        child: ElevatedButton(
+                          style: _buttonStyle(
+                            backgroundColor: Colors.deepOrange,
+                            foregroundColor: Colors.white,
+                          ),
+                          onPressed: onStartBreak,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                breakLabel,
+                                maxLines: 1,
+                                softWrap: false,
+                                style: TextStyle(
+                                  fontSize: fontSize * 0.82,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  )
+                : SizedBox(
+                    width: width,
+                    height: height,
+                    child: ElevatedButton(
+                      style: _buttonStyle(
+                        backgroundColor: Colors.amber,
+                        foregroundColor: Colors.black,
+                      ),
+                      onPressed: onPause,
+                      child: Text(
+                        pauseLabel,
+                        style: TextStyle(
+                          fontSize: fontSize,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-              ),
+          ),
+        );
+
+      case ShowTimerStatus.onBreak:
+        return SizedBox(
+          key: const ValueKey('break-controls'),
+          width: width,
+          height: height,
+          child: ElevatedButton(
+            style: _buttonStyle(
+              backgroundColor: Colors.deepOrange,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: onResumeFromBreakNow,
+            child: Text(
+              resumeFromBreakLabel,
+              style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w600),
             ),
           ),
         );

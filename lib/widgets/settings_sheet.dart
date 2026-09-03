@@ -8,6 +8,7 @@ typedef AsyncBoolChanged = Future<void> Function(bool value);
 typedef AsyncLanguageChanged = Future<void> Function(AppLanguage value);
 typedef AsyncCommentAlignmentChanged =
     Future<void> Function(CommentAlignment value);
+typedef AsyncDurationChanged = Future<void> Function(Duration value);
 
 Future<void> showSettingsSheet({
   required BuildContext context,
@@ -18,12 +19,16 @@ Future<void> showSettingsSheet({
   required bool use24Hour,
   required bool isAlwaysOnTop,
   required bool showAlwaysOnTopOption,
+  required bool breakFeatureEnabled,
+  required Duration breakDuration,
   required AsyncLanguageChanged onLanguageChanged,
   required AsyncCommentAlignmentChanged onCommentAlignmentChanged,
   required AsyncBoolChanged onShowCurrentTimeChanged,
   required AsyncBoolChanged onShowCurrentSecondsChanged,
   required AsyncBoolChanged onUse24HourChanged,
   required AsyncBoolChanged onAlwaysOnTopChanged,
+  required AsyncBoolChanged onBreakFeatureEnabledChanged,
+  required AsyncDurationChanged onBreakDurationChanged,
 }) {
   AppLanguage currentLanguage = language;
   CommentAlignment currentCommentAlignment = commentAlignment;
@@ -31,6 +36,8 @@ Future<void> showSettingsSheet({
   bool currentShowCurrentSeconds = showCurrentSeconds;
   bool currentUse24Hour = use24Hour;
   bool currentIsAlwaysOnTop = isAlwaysOnTop;
+  bool currentBreakFeatureEnabled = breakFeatureEnabled;
+  Duration currentBreakDuration = breakDuration;
 
   String translate(String japanese, String english) {
     return currentLanguage == AppLanguage.japanese ? japanese : english;
@@ -99,6 +106,26 @@ Future<void> showSettingsSheet({
             if (sheetContext.mounted) {
               updateSheet(() {
                 currentCommentAlignment = value;
+              });
+            }
+          }
+
+          Future<void> updateBreakFeatureEnabled(bool value) async {
+            await onBreakFeatureEnabledChanged(value);
+
+            if (sheetContext.mounted) {
+              updateSheet(() {
+                currentBreakFeatureEnabled = value;
+              });
+            }
+          }
+
+          Future<void> updateBreakDuration(Duration value) async {
+            await onBreakDurationChanged(value);
+
+            if (sheetContext.mounted) {
+              updateSheet(() {
+                currentBreakDuration = value;
               });
             }
           }
@@ -224,6 +251,30 @@ Future<void> showSettingsSheet({
                               ),
                               value: currentIsAlwaysOnTop,
                               onChanged: updateAlwaysOnTop,
+                            ),
+                          ],
+
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 16),
+                            child: Divider(color: Colors.white24, height: 1),
+                          ),
+
+                          _SettingSwitch(
+                            title: translate('休憩機能', 'Break'),
+                            subtitle: translate(
+                              '公演中に予定された休憩を挟めるようにします',
+                              'Lets you insert a scheduled break during the show.',
+                            ),
+                            value: currentBreakFeatureEnabled,
+                            onChanged: updateBreakFeatureEnabled,
+                          ),
+
+                          if (currentBreakFeatureEnabled) ...[
+                            const SizedBox(height: 8),
+                            _BreakDurationSelector(
+                              duration: currentBreakDuration,
+                              translate: translate,
+                              onChanged: updateBreakDuration,
                             ),
                           ],
 
@@ -446,6 +497,140 @@ class _CommentAlignmentSelector extends StatelessWidget {
                 ],
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BreakDurationSelector extends StatelessWidget {
+  const _BreakDurationSelector({
+    required this.duration,
+    required this.translate,
+    required this.onChanged,
+  });
+
+  final Duration duration;
+  final String Function(String japanese, String english) translate;
+  final ValueChanged<Duration> onChanged;
+
+  static const List<int> _hourOptions = [0, 1, 2, 3, 4, 5];
+  static const List<int> _minuteOptions = [
+    0,
+    5,
+    10,
+    15,
+    20,
+    25,
+    30,
+    35,
+    40,
+    45,
+    50,
+    55,
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final totalMinutes = duration.inMinutes;
+    final hours = (totalMinutes ~/ 60)
+        .clamp(_hourOptions.first, _hourOptions.last)
+        .toInt();
+    final minutes = (totalMinutes % 60).clamp(0, 59).toInt();
+
+    // 分の選択肢のうち、現在値以下で最も近い値に丸めます。
+    final nearestMinuteOption = _minuteOptions.lastWhere(
+      (option) => option <= minutes,
+      orElse: () => 0,
+    );
+
+    void notifyChange({int? newHours, int? newMinutes}) {
+      final resolvedHours = newHours ?? hours;
+      final resolvedMinutes = newMinutes ?? nearestMinuteOption;
+
+      var next = Duration(hours: resolvedHours, minutes: resolvedMinutes);
+
+      if (next <= Duration.zero) {
+        next = const Duration(minutes: 5);
+      }
+
+      onChanged(next);
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF222222),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  translate('休憩時間', 'Break Duration'),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  translate('休憩ボタンを押したときの休憩時間です', 'Length of a break.'),
+                  style: const TextStyle(
+                    color: Colors.white54,
+                    fontSize: 13,
+                    height: 1.25,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(width: 12),
+
+          DropdownButton<int>(
+            value: hours,
+            dropdownColor: const Color(0xFF222222),
+            style: const TextStyle(color: Colors.white, fontSize: 15),
+            underline: const SizedBox.shrink(),
+            onChanged: (value) {
+              if (value != null) {
+                notifyChange(newHours: value);
+              }
+            },
+            items: [
+              for (final option in _hourOptions)
+                DropdownMenuItem(
+                  value: option,
+                  child: Text(translate('$option時間', '${option}h')),
+                ),
+            ],
+          ),
+
+          const SizedBox(width: 8),
+
+          DropdownButton<int>(
+            value: nearestMinuteOption,
+            dropdownColor: const Color(0xFF222222),
+            style: const TextStyle(color: Colors.white, fontSize: 15),
+            underline: const SizedBox.shrink(),
+            onChanged: (value) {
+              if (value != null) {
+                notifyChange(newMinutes: value);
+              }
+            },
+            items: [
+              for (final option in _minuteOptions)
+                DropdownMenuItem(
+                  value: option,
+                  child: Text(translate('$option分', '${option}m')),
+                ),
+            ],
           ),
         ],
       ),

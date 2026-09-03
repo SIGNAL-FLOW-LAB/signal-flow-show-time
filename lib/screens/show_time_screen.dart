@@ -14,6 +14,7 @@ import '../platform/platform_support.dart';
 import '../services/session_service.dart';
 import '../services/settings_service.dart';
 import '../widgets/about_dialog.dart';
+import '../widgets/break_resume_display.dart';
 import '../widgets/current_time_display.dart';
 import '../widgets/hold_reset_button.dart';
 import '../widgets/main_controls.dart';
@@ -41,6 +42,8 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
   late final ShowTimerController _timerController;
   late final AppLifecycleListener _lifecycleListener;
 
+  ShowTimerStatus _lastPersistedTimerStatus = ShowTimerStatus.idle;
+
   Timer? _controlHideTimer;
   Timer? _windowSaveTimer;
 
@@ -50,12 +53,16 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
   bool _isTitleDialogOpen = false;
   bool _isSettingsOpen = false;
   bool _isAboutOpen = false;
+  bool _isBreakDialogOpen = false;
   bool _isClosingWindow = false;
 
   bool _isAlwaysOnTop = false;
   bool _showCurrentTime = true;
   bool _showCurrentSeconds = true;
   bool _use24Hour = true;
+
+  bool _breakFeatureEnabled = false;
+  Duration _breakDuration = const Duration(minutes: 15);
 
   AppLanguage _language = AppLanguage.japanese;
 
@@ -122,6 +129,8 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
       _use24Hour = settings.use24Hour;
       _language = settings.language;
       _commentAlignment = settings.commentAlignment;
+      _breakFeatureEnabled = settings.breakFeatureEnabled;
+      _breakDuration = settings.breakDuration;
     });
 
     widget.menuController.language.value = _language;
@@ -135,11 +144,19 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
       return;
     }
 
-    _timerController.restoreElapsed(savedTimerState.elapsed);
+    _timerController.restoreState(
+      elapsed: savedTimerState.elapsed,
+      isOnBreak: savedTimerState.isOnBreak,
+      breakEndsAt: savedTimerState.breakEndsAt,
+    );
   }
 
   Future<void> _saveTimerState() async {
-    await _sessionService.saveTimerState(_timerController.elapsed);
+    await _sessionService.saveTimerState(
+      elapsed: _timerController.elapsed,
+      isOnBreak: _timerController.isOnBreak,
+      breakEndsAt: _timerController.breakEndsAt,
+    );
   }
 
   Future<void> _saveWindowState() async {
@@ -188,8 +205,24 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
   }
 
   void _handleTimerChanged() {
-    if (mounted) {
-      setState(() {});
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {});
+
+    final currentStatus = _timerController.status;
+
+    // 休憩終了予定時刻に達した自動再開など、ボタン操作を経ない状態遷移も保存します。
+    if (currentStatus != _lastPersistedTimerStatus) {
+      _lastPersistedTimerStatus = currentStatus;
+      unawaited(_saveTimerState());
+
+      // 休憩の自動終了などボタン操作を経ずに進行中へ戻った場合も、
+      // 一時停止・休憩ボタンを一定時間後に自動で非表示にします。
+      if (currentStatus == ShowTimerStatus.running) {
+        _scheduleControlHide();
+      }
     }
   }
 
@@ -264,7 +297,10 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
   // ---------------------------------------------------------------------------
 
   Future<void> _showTitleEditDialog() async {
-    if (_isTitleDialogOpen || _isSettingsOpen || _isAboutOpen) {
+    if (_isTitleDialogOpen ||
+        _isSettingsOpen ||
+        _isAboutOpen ||
+        _isBreakDialogOpen) {
       return;
     }
 
@@ -355,8 +391,76 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
     }
   }
 
+  Future<void> _startBreakFlow() async {
+    if (!_timerController.isRunning ||
+        !_breakFeatureEnabled ||
+        _isBreakDialogOpen ||
+        _isTitleDialogOpen ||
+        _isSettingsOpen ||
+        _isAboutOpen) {
+      return;
+    }
+
+    _controlHideTimer?.cancel();
+
+    setState(() {
+      _isBreakDialogOpen = true;
+      _controlsVisible = true;
+    });
+
+    final resumeAt = DateTime.now().add(_breakDuration);
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return _BreakConfirmDialog(
+          language: _language,
+          breakDuration: _breakDuration,
+          resumeAt: resumeAt,
+          formatTime: _formatClockTime,
+        );
+      },
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isBreakDialogOpen = false;
+    });
+
+    _shortcutFocusNode.requestFocus();
+
+    if (confirmed == true && _timerController.isRunning) {
+      _timerController.startBreak(_breakDuration);
+      unawaited(_saveTimerState());
+      setState(() {
+        _controlsVisible = true;
+      });
+    } else if (_timerController.status == ShowTimerStatus.running) {
+      _scheduleControlHide();
+    }
+  }
+
+  void _resumeFromBreakNow() {
+    if (!_timerController.isOnBreak) {
+      return;
+    }
+
+    _timerController.resumeFromBreakNow();
+    unawaited(_saveTimerState());
+    setState(() {
+      _controlsVisible = true;
+    });
+    _scheduleControlHide();
+  }
+
   void _handlePrimaryShortcut() {
-    if (_isTitleDialogOpen || _isSettingsOpen || _isAboutOpen) {
+    if (_isTitleDialogOpen ||
+        _isSettingsOpen ||
+        _isAboutOpen ||
+        _isBreakDialogOpen) {
       return;
     }
 
@@ -370,6 +474,9 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
       case ShowTimerStatus.paused:
         _resumeShowTime();
         return;
+      case ShowTimerStatus.onBreak:
+        _resumeFromBreakNow();
+        return;
     }
   }
 
@@ -379,7 +486,8 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
 
   void _showControlsTemporarily() {
     if (_timerController.status != ShowTimerStatus.running ||
-        _isTitleDialogOpen) {
+        _isTitleDialogOpen ||
+        _isBreakDialogOpen) {
       return;
     }
 
@@ -396,14 +504,16 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
     _controlHideTimer?.cancel();
 
     if (_timerController.status != ShowTimerStatus.running ||
-        _isTitleDialogOpen) {
+        _isTitleDialogOpen ||
+        _isBreakDialogOpen) {
       return;
     }
 
     _controlHideTimer = Timer(_controlHideDelay, () {
       if (!mounted ||
           _timerController.status != ShowTimerStatus.running ||
-          _isTitleDialogOpen) {
+          _isTitleDialogOpen ||
+          _isBreakDialogOpen) {
         return;
       }
 
@@ -453,6 +563,22 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
     widget.menuController.alwaysOnTop.value = newValue;
   }
 
+  Future<void> _setBreakFeatureEnabled(bool value) async {
+    setState(() {
+      _breakFeatureEnabled = value;
+    });
+
+    await _settingsService.saveBreakFeatureEnabled(value);
+  }
+
+  Future<void> _setBreakDuration(Duration value) async {
+    setState(() {
+      _breakDuration = value;
+    });
+
+    await _settingsService.saveBreakDuration(value);
+  }
+
   Future<void> _setShowCurrentTime(bool value) async {
     setState(() {
       _showCurrentTime = value;
@@ -488,7 +614,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
   }
 
   void _openAbout() {
-    if (_isAboutOpen || _isSettingsOpen) {
+    if (_isAboutOpen || _isSettingsOpen || _isBreakDialogOpen) {
       return;
     }
 
@@ -516,7 +642,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
   }
 
   void _openSettings() {
-    if (_isSettingsOpen) {
+    if (_isSettingsOpen || _isBreakDialogOpen) {
       return;
     }
 
@@ -536,6 +662,8 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
       use24Hour: _use24Hour,
       isAlwaysOnTop: _isAlwaysOnTop,
       showAlwaysOnTopOption: isDesktopPlatform,
+      breakFeatureEnabled: _breakFeatureEnabled,
+      breakDuration: _breakDuration,
       onLanguageChanged: _setLanguage,
       onCommentAlignmentChanged: _setCommentAlignment,
       onShowCurrentTimeChanged: _setShowCurrentTime,
@@ -546,6 +674,8 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
           await _toggleAlwaysOnTop();
         }
       },
+      onBreakFeatureEnabledChanged: _setBreakFeatureEnabled,
+      onBreakDurationChanged: _setBreakDuration,
     ).whenComplete(() {
       if (!mounted) {
         return;
@@ -575,11 +705,34 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
         return const Color(0xFF69F0AE);
       case ShowTimerStatus.paused:
         return const Color(0xFFFFC107);
+      case ShowTimerStatus.onBreak:
+        return const Color(0xFFFF9100);
     }
   }
 
   double _clamp(double value, double minimum, double maximum) {
     return value.clamp(minimum, maximum).toDouble();
+  }
+
+  String _formatClockTime(DateTime time) {
+    final hours = _use24Hour
+        ? time.hour.toString()
+        : (() {
+            var displayHour = time.hour % 12;
+            if (displayHour == 0) {
+              displayHour = 12;
+            }
+            return displayHour.toString();
+          })();
+
+    final minutes = time.minute.toString().padLeft(2, '0');
+
+    if (_use24Hour) {
+      return '$hours:$minutes';
+    }
+
+    final period = time.hour >= 12 ? 'PM' : 'AM';
+    return '$hours:$minutes $period';
   }
 
   // ---------------------------------------------------------------------------
@@ -651,6 +804,1121 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
   // ---------------------------------------------------------------------------
 
   // ---------------------------------------------------------------------------
+  // 休憩中の再開予定時刻
+  // ---------------------------------------------------------------------------
+
+  DateTime? get _breakEndsAt => _timerController.breakEndsAt;
+
+  bool get _isOnBreakWithEndTime =>
+      _timerController.isOnBreak && _breakEndsAt != null;
+
+  bool get _isBreakEndingSoon {
+    final endsAt = _breakEndsAt;
+    if (!_isOnBreakWithEndTime || endsAt == null) {
+      return false;
+    }
+
+    final remaining = endsAt.difference(DateTime.now());
+    return !remaining.isNegative && remaining <= const Duration(minutes: 1);
+  }
+
+  // 休憩中の再開予定時刻。「再開予定」ラベル＋大きな時刻の2段表示。
+  // timeFontSizeは現在時刻表示の50〜65%を目安に、currentTimeFontSizeから算出します。
+  Widget _buildBreakResumeArea({
+    required double currentTimeFontSize,
+    required double labelFontSize,
+    required double labelGap,
+    required double outerGap,
+    double? maxWidth,
+  }) {
+    final breakEndsAt = _breakEndsAt;
+    final isOnBreak = _isOnBreakWithEndTime;
+
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.topCenter,
+      child: !isOnBreak
+          ? const SizedBox.shrink()
+          : Padding(
+              padding: EdgeInsets.symmetric(vertical: outerGap),
+              child: BreakResumeDisplay(
+                resumeAt: breakEndsAt!,
+                use24Hour: _use24Hour,
+                isEndingSoon: _isBreakEndingSoon,
+                label: _t('再開予定', 'RESUMES AT'),
+                labelFontSize: labelFontSize,
+                timeFontSize: currentTimeFontSize * 0.58,
+                labelGap: labelGap,
+                maxWidth: maxWidth,
+              ),
+            ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // iPad横画面
+  // 左: 上部余白＋コメント（下寄せ・上限付き）＋操作ボタン
+  // 右: 現在時刻・再開予定・公演時間
+  // ---------------------------------------------------------------------------
+
+  Widget _buildTabletLandscapeLayout({
+    required double width,
+    required double height,
+  }) {
+    final horizontalPadding = _clamp(width * 0.040, 28, 56);
+    final verticalPadding = _clamp(height * 0.030, 18, 32);
+    final columnGap = _clamp(width * 0.035, 28, 52);
+
+    final contentWidth = width - (horizontalPadding * 2);
+    final contentHeight = height - (verticalPadding * 2);
+
+    final leftWidth = (contentWidth - columnGap) * 0.45;
+    final rightWidth = (contentWidth - columnGap) * 0.55;
+
+    final commentFontSize = _clamp(leftWidth * 0.070, 18, 26);
+    final commentMaxLines = 6;
+
+    // コメントは左カラム内で高さの上限を持たせ、余った分は上の空白に
+    // 回します（Flexibleのため、極端に低いウィンドウでも溢れません）。
+    final commentMaxHeight = _clamp(contentHeight * 0.22, 90, 220);
+
+    final buttonHeight = _clamp(contentHeight * 0.13, 56, 84);
+    final buttonFontSize = _clamp(leftWidth * 0.090, 19, 26);
+    final buttonGap = _clamp(contentHeight * 0.028, 12, 24);
+
+    final labelFontSize = _clamp(rightWidth * 0.050, 15, 20);
+    final labelGap = _clamp(contentHeight * 0.012, 6, 12);
+    final currentTimeFontSize = _clamp(rightWidth * 0.200, 44, 92);
+    final showTimeFontSize = _clamp(rightWidth * 0.300, 60, 140);
+    final blockGap = _clamp(contentHeight * 0.020, 8, 20);
+
+    final isOnBreak = _isOnBreakWithEndTime;
+
+    final controlsAreVisible =
+        _controlsVisible &&
+        !_isTitleDialogOpen &&
+        !_isSettingsOpen &&
+        !_isAboutOpen &&
+        !_isBreakDialogOpen;
+
+    final leftColumn = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // 上部の空白。コメントとボタンを左カラム下側へまとめて配置する
+        // ための余白で、コメントが短い／未入力でも巨大な空白ができる
+        // 主因だった「コメントのExpanded一択」構成を解消します。
+        const Expanded(
+          key: ValueKey('tablet-landscape-left-spacer'),
+          flex: 5,
+          child: SizedBox.shrink(),
+        ),
+
+        Flexible(
+          key: const ValueKey('tablet-landscape-comment'),
+          flex: 3,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: commentMaxHeight),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.topLeft,
+              child: SizedBox(
+                width: leftWidth,
+                child: _buildShowTitle(
+                  fontSize: commentFontSize,
+                  availableWidth: leftWidth,
+                  maxLines: commentMaxLines,
+                ),
+              ),
+            ),
+          ),
+        ),
+
+        SizedBox(
+          key: const ValueKey('tablet-landscape-gap-comment-button'),
+          height: buttonGap,
+        ),
+
+        SizedBox(
+          key: const ValueKey('tablet-landscape-button'),
+          height: buttonHeight,
+          child: AnimatedSwitcher(
+            duration: Duration.zero,
+            child: MainControls(
+              status: _timerController.status,
+              controlsVisible: controlsAreVisible,
+              width: leftWidth,
+              height: buttonHeight,
+              fontSize: buttonFontSize,
+              onStart: _startShowTime,
+              onPause: _pauseShowTime,
+              onResume: _resumeShowTime,
+              breakFeatureEnabled: _breakFeatureEnabled,
+              onStartBreak: () {
+                unawaited(_startBreakFlow());
+              },
+              onResumeFromBreakNow: _resumeFromBreakNow,
+              startLabel: _t('スタート', 'START'),
+              pauseLabel: _t('一時停止', 'PAUSE'),
+              resumeLabel: _t('再開', 'RESUME'),
+              breakLabel: _t('休憩', 'Start Break'),
+              resumeFromBreakLabel: _t('今すぐ再開', 'Resume Now'),
+              resetButton: HoldResetButton(
+                width: (leftWidth - 12) / 2,
+                height: buttonHeight,
+                fontSize: buttonFontSize,
+                onReset: _resetShowTime,
+                resetLabel: _t('リセット', 'RESET'),
+                holdLabel: _t('ホールド', 'HOLD'),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+
+    final rightColumn = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (_showCurrentTime) ...[
+          Expanded(
+            key: const ValueKey('tablet-landscape-current-time'),
+            flex: 20,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: SizedBox(
+                width: rightWidth,
+                child: CurrentTimeDisplay(
+                  label: _t('現在時刻', 'CURRENT TIME'),
+                  showSeconds: _showCurrentSeconds,
+                  use24Hour: _use24Hour,
+                  labelFontSize: labelFontSize,
+                  timeFontSize: currentTimeFontSize,
+                  labelGap: labelGap,
+                ),
+              ),
+            ),
+          ),
+          SizedBox(
+            key: const ValueKey('tablet-landscape-gap-after-current-time'),
+            height: blockGap,
+          ),
+        ],
+
+        if (isOnBreak) ...[
+          Expanded(
+            key: const ValueKey('tablet-landscape-resume'),
+            flex: 14,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: BreakResumeDisplay(
+                resumeAt: _breakEndsAt!,
+                use24Hour: _use24Hour,
+                isEndingSoon: _isBreakEndingSoon,
+                label: _t('再開予定', 'RESUMES AT'),
+                labelFontSize: labelFontSize,
+                timeFontSize: currentTimeFontSize * 0.58,
+                labelGap: labelGap,
+                maxWidth: rightWidth,
+              ),
+            ),
+          ),
+          SizedBox(
+            key: const ValueKey('tablet-landscape-gap-after-resume'),
+            height: blockGap,
+          ),
+        ],
+
+        Expanded(
+          key: const ValueKey('tablet-landscape-show-time'),
+          flex: 32,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: SizedBox(
+              width: rightWidth,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _t('公演時間', 'SHOW TIME'),
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: labelFontSize,
+                    ),
+                  ),
+                  SizedBox(height: labelGap),
+                  ShowElapsedDisplay(
+                    elapsed: _timerController.elapsed,
+                    color: _showTimeColor,
+                    fontSize: showTimeFontSize,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+
+    return Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: horizontalPadding,
+        vertical: verticalPadding,
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(width: leftWidth, child: leftColumn),
+          SizedBox(width: columnGap),
+          SizedBox(width: rightWidth, child: rightColumn),
+        ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // 縦画面共通レイアウト（iPhone縦・iPad縦で共有）
+  // 現在時刻 → 再開予定専用の固定高領域 → 公演時間 → コメント（下寄せ・
+  // 上限付き） → 操作ボタン
+  // Widget構成そのものは共通化し、寸法・文字サイズ・コメント行数など
+  // 端末ごとに変わる値だけを呼び出し側から渡します。ボタンは固定サイズの
+  // 非フレキシブル要素として最後に確保し、コメントはExpanded+
+  // ConstrainedBox(maxHeight)で上限付き（かつ極端に低いウィンドウでも
+  // 溢れない）にすることで、コメントの有無・長さに関わらずボタン位置が
+  // 動かないようにしています。
+  //
+  // 現在時刻・公演時間の位置固定: 再開予定は現在時刻と公演時間の間に
+  // 常に同じ高さ（resumeAreaHeight）のSizedBoxとして予約し、休憩中だけ
+  // その中身を描画します。中身が無いときはchildをnull（=SizedBox.shrink
+  // ではなく本当に何もない）にすることで、アクセシビリティツリーに
+  // 不要な非表示テキストを残しません。この領域の有無で現在時刻・公演時間
+  // 側のflex構成が変化しないため、休憩の開始・終了で時計位置が動きません。
+  // ---------------------------------------------------------------------------
+
+  Widget _buildPortraitLayout({
+    required String keyPrefix,
+    required double horizontalPadding,
+    required double topPadding,
+    required double bottomPadding,
+    required double contentWidth,
+    required double labelFontSize,
+    required double labelGap,
+    required double currentTimeFontSize,
+    required double showTimeFontSize,
+    required double blockGap,
+    required double commentFontSize,
+    required int commentMaxLines,
+    required double commentMaxHeight,
+    required double commentGap,
+    required double buttonWidth,
+    required double buttonHeight,
+    required double buttonFontSize,
+    required double buttonTopGap,
+    required int clockGroupFlex,
+    required int commentFlex,
+    required int currentTimeFlex,
+    required int showTimeFlex,
+  }) {
+    final isOnBreak = _isOnBreakWithEndTime;
+
+    final controlsAreVisible =
+        _controlsVisible &&
+        !_isTitleDialogOpen &&
+        !_isSettingsOpen &&
+        !_isAboutOpen &&
+        !_isBreakDialogOpen;
+
+    final resumeTimeFontSize = currentTimeFontSize * 0.58;
+    // ラベル1行＋ラベルとの間隔＋時刻表示（BreakResumeDisplay内部の
+    // SizedBox(height: timeFontSize*1.2)と同じ倍率）に収まる高さ。
+    final resumeAreaHeight =
+        (labelFontSize * 1.3) + labelGap + (resumeTimeFontSize * 1.2);
+
+    final clockGroupChildren = <Widget>[
+      if (_showCurrentTime) ...[
+        Expanded(
+          key: ValueKey('$keyPrefix-current-time'),
+          flex: currentTimeFlex,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: SizedBox(
+              width: contentWidth,
+              child: CurrentTimeDisplay(
+                label: _t('現在時刻', 'CURRENT TIME'),
+                showSeconds: _showCurrentSeconds,
+                use24Hour: _use24Hour,
+                labelFontSize: labelFontSize,
+                timeFontSize: currentTimeFontSize,
+                labelGap: labelGap,
+              ),
+            ),
+          ),
+        ),
+        SizedBox(
+          key: ValueKey('$keyPrefix-gap-after-current-time'),
+          height: blockGap,
+        ),
+      ],
+
+      SizedBox(
+        key: ValueKey('$keyPrefix-resume-area'),
+        height: resumeAreaHeight,
+        child: !isOnBreak
+            ? null
+            : FittedBox(
+                fit: BoxFit.scaleDown,
+                child: BreakResumeDisplay(
+                  resumeAt: _breakEndsAt!,
+                  use24Hour: _use24Hour,
+                  isEndingSoon: _isBreakEndingSoon,
+                  label: _t('再開予定', 'RESUMES AT'),
+                  labelFontSize: labelFontSize,
+                  timeFontSize: resumeTimeFontSize,
+                  labelGap: labelGap,
+                  maxWidth: contentWidth,
+                ),
+              ),
+      ),
+      SizedBox(key: ValueKey('$keyPrefix-gap-after-resume'), height: blockGap),
+
+      Expanded(
+        key: ValueKey('$keyPrefix-show-time'),
+        flex: showTimeFlex,
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: SizedBox(
+            width: contentWidth,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _t('公演時間', 'SHOW TIME'),
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: labelFontSize,
+                  ),
+                ),
+                SizedBox(height: labelGap),
+                ShowElapsedDisplay(
+                  elapsed: _timerController.elapsed,
+                  color: _showTimeColor,
+                  fontSize: showTimeFontSize,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ];
+
+    final children = <Widget>[
+      Expanded(
+        key: ValueKey('$keyPrefix-clock-group'),
+        flex: clockGroupFlex,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: clockGroupChildren,
+        ),
+      ),
+
+      SizedBox(
+        key: ValueKey('$keyPrefix-gap-before-comment'),
+        height: commentGap,
+      ),
+
+      // コメントはExpanded（tight）で包み、常に同じflex比率の高さを
+      // 確保します。中の見え方（未入力時の鉛筆アイコン／入力済み
+      // テキスト）が変わってもこの外枠の高さは変化しないため、
+      // 入力の有無でボタンや時計の位置が動きません。
+      Expanded(
+        key: ValueKey('$keyPrefix-comment-slot'),
+        flex: commentFlex,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: commentMaxHeight),
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.topCenter,
+            child: SizedBox(
+              key: ValueKey('$keyPrefix-comment'),
+              width: contentWidth,
+              child: _buildShowTitle(
+                fontSize: commentFontSize,
+                availableWidth: contentWidth,
+                maxLines: commentMaxLines,
+              ),
+            ),
+          ),
+        ),
+      ),
+
+      SizedBox(
+        key: ValueKey('$keyPrefix-gap-before-button'),
+        height: buttonTopGap,
+      ),
+
+      SizedBox(
+        key: ValueKey('$keyPrefix-button'),
+        width: buttonWidth,
+        height: buttonHeight,
+        child: AnimatedSwitcher(
+          duration: Duration.zero,
+          child: MainControls(
+            status: _timerController.status,
+            controlsVisible: controlsAreVisible,
+            width: buttonWidth,
+            height: buttonHeight,
+            fontSize: buttonFontSize,
+            onStart: _startShowTime,
+            onPause: _pauseShowTime,
+            onResume: _resumeShowTime,
+            breakFeatureEnabled: _breakFeatureEnabled,
+            onStartBreak: () {
+              unawaited(_startBreakFlow());
+            },
+            onResumeFromBreakNow: _resumeFromBreakNow,
+            startLabel: _t('スタート', 'START'),
+            pauseLabel: _t('一時停止', 'PAUSE'),
+            resumeLabel: _t('再開', 'RESUME'),
+            breakLabel: _t('休憩', 'Start Break'),
+            resumeFromBreakLabel: _t('今すぐ再開', 'Resume Now'),
+            resetButton: HoldResetButton(
+              width: (buttonWidth - 12) / 2,
+              height: buttonHeight,
+              fontSize: buttonFontSize,
+              onReset: _resetShowTime,
+              resetLabel: _t('リセット', 'RESET'),
+              holdLabel: _t('ホールド', 'HOLD'),
+            ),
+          ),
+        ),
+      ),
+    ];
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        horizontalPadding,
+        topPadding,
+        horizontalPadding,
+        bottomPadding,
+      ),
+      // クロス軸はcenter: 時計グループ・コメントは内部のSizedBox(width:
+      // contentWidth)でcontentWidth幅を確保しつつ、ボタンだけはそれより
+      // 狭いbuttonWidthで中央寄せにします。
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: children,
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // iPad縦画面
+  // 現在時刻 → 再開予定 → 公演時間 → コメント（下寄せ・上限付き） → 操作ボタン
+  // ---------------------------------------------------------------------------
+
+  Widget _buildTabletPortraitLayout({
+    required double width,
+    required double height,
+  }) {
+    final horizontalPadding = _clamp(width * 0.055, 28, 64);
+    final topPadding = _clamp(height * 0.025, 16, 32);
+    final bottomPadding = _clamp(height * 0.020, 16, 28);
+
+    final contentWidth = width - (horizontalPadding * 2);
+
+    final commentFontSize = _clamp(contentWidth * 0.024, 15, 20);
+    const commentMaxLines = 4;
+
+    // コメント領域の高さの上限。時計グループ（現在時刻・再開予定・公演
+    // 時間）を主役にするため、コメントは下部に小さくまとめます。
+    // Expanded(flex)で包むため、これより低いウィンドウでも溢れません。
+    final commentMaxHeight = _clamp(height * 0.16, 90, 200);
+
+    final labelFontSize = _clamp(contentWidth * 0.026, 16, 22);
+    final labelGap = _clamp(height * 0.008, 6, 12);
+    final currentTimeFontSize = _clamp(contentWidth * 0.160, 56, 100);
+    final showTimeFontSize = _clamp(contentWidth * 0.220, 80, 160);
+    final blockGap = _clamp(height * 0.014, 8, 22);
+
+    final buttonHeight = _clamp(height * 0.075, 60, 84);
+    final buttonWidth = _clamp(width * 0.65, 320, 680);
+    final buttonFontSize = _clamp(contentWidth * 0.045, 22, 30);
+    final buttonTopGap = _clamp(height * 0.022, 14, 28);
+
+    return _buildPortraitLayout(
+      keyPrefix: 'tablet-portrait',
+      horizontalPadding: horizontalPadding,
+      topPadding: topPadding,
+      bottomPadding: bottomPadding,
+      contentWidth: contentWidth,
+      labelFontSize: labelFontSize,
+      labelGap: labelGap,
+      currentTimeFontSize: currentTimeFontSize,
+      showTimeFontSize: showTimeFontSize,
+      blockGap: blockGap,
+      commentFontSize: commentFontSize,
+      commentMaxLines: commentMaxLines,
+      commentMaxHeight: commentMaxHeight,
+      commentGap: blockGap,
+      buttonWidth: buttonWidth,
+      buttonHeight: buttonHeight,
+      buttonFontSize: buttonFontSize,
+      buttonTopGap: buttonTopGap,
+      clockGroupFlex: 8,
+      commentFlex: 2,
+      currentTimeFlex: 2,
+      showTimeFlex: 3,
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // iPhone縦画面
+  // 4領域（topClockRegion / performanceTimeRegion / commentRegion /
+  // controlsRegion）に明示的に分割したStack/Positionedレイアウトです。
+  //
+  // - controlsRegionは画面下端からbottomPadding+buttonHeightで固定します
+  //   （以前の数式のまま）。これにより操作ボタンの位置は今回の変更で
+  //   一切動きません。
+  // - performanceTimeRegionは、現在時刻・再開予定・コメントの内容量とは
+  //   無関係に「利用可能な高さ(height)の中央」を基準に高さを算出して
+  //   配置します。SpacerやspaceEvenlyなどの再配分には依存していません。
+  // - topClockRegion（現在時刻＋再開予定専用の固定高スロット）は
+  //   topPaddingからperformanceTimeRegionの上端までの範囲です。
+  // - commentRegionはperformanceTimeRegionの下端からcontrolsRegionの
+  //   上端までの残り領域で、コメント最大8行（iPhoneのコメント編集
+  //   ダイアログの仕様と一致）を目安に、実際に高さが足りるかを
+  //   _resolveCommentMaxLinesで検証してから行数を決定します。
+  // ---------------------------------------------------------------------------
+
+  Widget _buildPhonePortraitLayout({
+    required double width,
+    required double height,
+  }) {
+    // 横方向の余白・文字サイズはwidth基準、縦方向の余白・ギャップは
+    // height基準（従来のiPhone縦画面の数式を踏襲）。
+    final horizontalPadding = _clamp(width * 0.035, 12, 80);
+    // 設定アイコン（右上オーバーレイ）と現在時刻が重ならないよう、
+    // 上部に十分な余白を確保します。
+    final topPadding = _clamp(height * 0.045, 24, 56);
+    final bottomPadding = _clamp(height * 0.020, 12, 28);
+
+    final contentWidth = width - (horizontalPadding * 2);
+
+    // 現在時刻・公演時間の文字サイズ、操作ボタンの寸法は既存の視認性・
+    // 位置を維持するため、以前と同じ数式のままにしています。
+    final labelFontSize = _clamp(width * 0.036, 12, 18);
+    final labelGap = _clamp(height * 0.009, 5, 14);
+    final currentTimeFontSize = _clamp(width * 0.155, 52, 66);
+    final baseShowTimeFontSize = _clamp(width * 0.205, 72, 92);
+    final showTimeFontSize = _clamp(baseShowTimeFontSize * 1.20, 38, 215);
+
+    // 現在時刻と再開予定を明確に別ブロックとして認識できるよう、
+    // 画面高に応じた余白を確保します。短い端末では上限を抑えます。
+    final gapAfterCurrentTime = _clamp(height * 0.018, 10, 20);
+    // topClockRegionとperformanceTimeRegion、performanceTimeRegionと
+    // commentRegionの間の余白。
+    final gapBeforeShowTime = _clamp(height * 0.014, 8, 20);
+    final gapAfterShowTime = _clamp(height * 0.014, 8, 20);
+
+    final buttonWidth = _clamp(width * 0.72, 250, 330);
+    final buttonHeight = _clamp(height * 0.072, 58, 70);
+    final buttonFontSize = _clamp(width * 0.055, 20, 24);
+    // commentRegionとcontrolsRegionの間の余白（誤操作防止）。
+    final buttonTopGap = _clamp(height * 0.020, 12, 24);
+
+    final resumeTimeFontSize = currentTimeFontSize * 0.58;
+    final resumeAreaHeight =
+        (labelFontSize * 1.3) + labelGap + (resumeTimeFontSize * 1.2);
+
+    // performanceTimeRegion: 高さのみ内容から算出し、位置は
+    // height全体の中央に固定します（現在時刻・再開予定・コメントの
+    // 内容量には一切依存しません）。
+    final performanceTimeRegionHeight =
+        (labelFontSize * 1.3) + labelGap + (showTimeFontSize * 1.3);
+    final performanceTimeRegionTop =
+        ((height - performanceTimeRegionHeight) / 2).clamp(0.0, height);
+
+    // controlsRegion: 画面下端からbottomPadding+buttonHeightで固定
+    // （以前の数式のまま。ボタンの位置は変わりません）。
+    final controlsTop = (height - bottomPadding - buttonHeight).clamp(
+      0.0,
+      height,
+    );
+
+    // commentRegion: performanceTimeRegionの下端からcontrolsRegionの
+    // 上端までの残り。
+    final commentRegionTop =
+        performanceTimeRegionTop +
+        performanceTimeRegionHeight +
+        gapAfterShowTime;
+    final commentRegionBottom = (controlsTop - buttonTopGap).clamp(0.0, height);
+    final commentRegionHeight = (commentRegionBottom - commentRegionTop).clamp(
+      0.0,
+      height,
+    );
+
+    // topClockRegion: topPaddingからperformanceTimeRegionの上端まで。
+    final topClockRegionTop = topPadding;
+    final topClockRegionBottom = (performanceTimeRegionTop - gapBeforeShowTime)
+        .clamp(0.0, height);
+    final topClockRegionHeight = (topClockRegionBottom - topClockRegionTop)
+        .clamp(0.0, height);
+
+    // コメントは補助情報。標準・大型iPhoneでは最大8行（コメント編集
+    // ダイアログの仕様と一致）、高さが不足する端末では6行・4行へ
+    // 段階的に縮小します（RenderFlex overflowを避けるためのフォール
+    // バックで、標準・大型・SE相当のいずれでも実測上は8行に収まって
+    // います。詳細は完了報告を参照）。
+    // 同じ端末を横向きにしたときのコメントと同じ算出規則です。
+    // portraitのwidth == landscapeのshortestSideなので、向きによって
+    // コメントの見かけの大きさが変わりません。
+    final commentFontSize = _clamp(width * 0.050, 16, 20);
+    final commentMaxLines = _resolveCommentMaxLines(
+      candidates: const [8, 6, 4],
+      fontSize: commentFontSize,
+      availableHeight: commentRegionHeight,
+    );
+
+    final isOnBreak = _isOnBreakWithEndTime;
+
+    final controlsAreVisible =
+        _controlsVisible &&
+        !_isTitleDialogOpen &&
+        !_isSettingsOpen &&
+        !_isAboutOpen &&
+        !_isBreakDialogOpen;
+
+    final topClockContent = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        if (_showCurrentTime) ...[
+          SizedBox(
+            width: contentWidth,
+            child: CurrentTimeDisplay(
+              label: _t('現在時刻', 'CURRENT TIME'),
+              showSeconds: _showCurrentSeconds,
+              use24Hour: _use24Hour,
+              labelFontSize: labelFontSize,
+              timeFontSize: currentTimeFontSize,
+              labelGap: labelGap,
+            ),
+          ),
+          SizedBox(height: gapAfterCurrentTime),
+        ],
+
+        // 再開予定専用の固定高スロット。休憩中でなくても常に同じ高さを
+        // 確保するため、現在時刻・公演時間の位置は休憩の開始・終了で
+        // 動きません。中身が無いときはchildをnullにし、アクセシビリ
+        // ティツリーに不要な非表示テキストを残しません。
+        SizedBox(
+          key: const ValueKey('phone-portrait-resume-area'),
+          height: resumeAreaHeight,
+          child: !isOnBreak
+              ? null
+              : FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: BreakResumeDisplay(
+                    resumeAt: _breakEndsAt!,
+                    use24Hour: _use24Hour,
+                    isEndingSoon: _isBreakEndingSoon,
+                    label: _t('再開予定', 'RESUMES AT'),
+                    labelFontSize: labelFontSize,
+                    timeFontSize: resumeTimeFontSize,
+                    labelGap: labelGap,
+                    maxWidth: contentWidth,
+                  ),
+                ),
+        ),
+      ],
+    );
+
+    final performanceTimeContent = SizedBox(
+      width: contentWidth,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            _t('公演時間', 'SHOW TIME'),
+            style: TextStyle(color: Colors.white70, fontSize: labelFontSize),
+          ),
+          SizedBox(height: labelGap),
+          ShowElapsedDisplay(
+            elapsed: _timerController.elapsed,
+            color: _showTimeColor,
+            fontSize: showTimeFontSize,
+          ),
+        ],
+      ),
+    );
+
+    final commentContent = SizedBox(
+      key: const ValueKey('phone-portrait-comment'),
+      width: contentWidth,
+      child: _buildShowTitle(
+        fontSize: commentFontSize,
+        availableWidth: contentWidth,
+        maxLines: commentMaxLines,
+      ),
+    );
+
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+      child: SizedBox(
+        width: double.infinity,
+        height: height,
+        child: Stack(
+          children: [
+            Positioned(
+              key: const ValueKey('phone-portrait-top-clock-region'),
+              top: topClockRegionTop,
+              left: 0,
+              right: 0,
+              height: topClockRegionHeight,
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxHeight: topClockRegionHeight),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: topClockContent,
+                  ),
+                ),
+              ),
+            ),
+
+            Positioned(
+              key: const ValueKey('phone-portrait-performance-time-region'),
+              top: performanceTimeRegionTop,
+              left: 0,
+              right: 0,
+              height: performanceTimeRegionHeight,
+              child: Center(
+                key: const ValueKey('phone-portrait-show-time'),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: performanceTimeContent,
+                ),
+              ),
+            ),
+
+            Positioned(
+              key: const ValueKey('phone-portrait-comment-region'),
+              top: commentRegionTop,
+              left: 0,
+              right: 0,
+              height: commentRegionHeight,
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxHeight: commentRegionHeight),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.topCenter,
+                    child: commentContent,
+                  ),
+                ),
+              ),
+            ),
+
+            Positioned(
+              key: const ValueKey('phone-portrait-controls-region'),
+              top: controlsTop,
+              left: 0,
+              right: 0,
+              height: buttonHeight,
+              child: Center(
+                child: SizedBox(
+                  key: const ValueKey('phone-portrait-button'),
+                  width: buttonWidth,
+                  height: buttonHeight,
+                  child: AnimatedSwitcher(
+                    duration: Duration.zero,
+                    child: MainControls(
+                      status: _timerController.status,
+                      controlsVisible: controlsAreVisible,
+                      width: buttonWidth,
+                      height: buttonHeight,
+                      fontSize: buttonFontSize,
+                      onStart: _startShowTime,
+                      onPause: _pauseShowTime,
+                      onResume: _resumeShowTime,
+                      breakFeatureEnabled: _breakFeatureEnabled,
+                      onStartBreak: () {
+                        unawaited(_startBreakFlow());
+                      },
+                      onResumeFromBreakNow: _resumeFromBreakNow,
+                      startLabel: _t('スタート', 'START'),
+                      pauseLabel: _t('一時停止', 'PAUSE'),
+                      resumeLabel: _t('再開', 'RESUME'),
+                      breakLabel: _t('休憩', 'Start Break'),
+                      resumeFromBreakLabel: _t('今すぐ再開', 'Resume Now'),
+                      resetButton: HoldResetButton(
+                        width: (buttonWidth - 12) / 2,
+                        height: buttonHeight,
+                        fontSize: buttonFontSize,
+                        onReset: _resetShowTime,
+                        resetLabel: _t('リセット', 'RESET'),
+                        holdLabel: _t('ホールド', 'HOLD'),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // コメント表示の最大行数を、実際に確保できる高さから決定します。
+  // candidatesは大きい順（例: [8, 6, 4]）に試し、fontSize*1.18*行数が
+  // availableHeightの94%（安全マージン）に収まる最初の値を返します。
+  // どれも収まらない場合は最後の候補（最小値）を返します。
+  int _resolveCommentMaxLines({
+    required List<int> candidates,
+    required double fontSize,
+    required double availableHeight,
+  }) {
+    const lineHeightMultiplier = 1.18;
+    final usableHeight = availableHeight * 0.94;
+    for (final lines in candidates) {
+      if (fontSize * lineHeightMultiplier * lines <= usableHeight) {
+        return lines;
+      }
+    }
+    return candidates.last;
+  }
+
+  // ---------------------------------------------------------------------------
+  // macOS等デスクトップウィンドウ
+  // コメント → 現在時刻（休憩中は右に再開予定を横並び） → 公演時間 → 操作ボタン
+  // ボタン領域は先に高さを確保し、残りをExpandedで時計類に配分することで、
+  // コメントの有無・長さに関わらず「今すぐ再開」が画面外へ押し出されないようにします。
+  // ---------------------------------------------------------------------------
+
+  Widget _buildDesktopLayout({required double width, required double height}) {
+    final horizontalPadding = _clamp(width * 0.050, 20, 72);
+    final topPadding = _clamp(height * 0.030, 16, 32);
+    final bottomPadding = _clamp(height * 0.030, 20, 40);
+
+    final contentWidth = width - (horizontalPadding * 2);
+
+    // 十分な横幅がある場合のみ、現在時刻と再開予定を横並びにします。
+    // 幅が足りないウィンドウでは縦積みへフォールバックします。
+    final isWideEnoughForRow = width >= 640;
+    final rowGap = _clamp(width * 0.05, 24, 80);
+
+    final commentFontSize = _clamp(contentWidth * 0.026, 18, 30);
+    const commentMaxLines = 4;
+
+    final labelFontSize = _clamp(contentWidth * 0.018, 14, 22);
+    final labelGap = _clamp(height * 0.010, 6, 14);
+    final currentTimeFontSize = _clamp(contentWidth * 0.100, 48, 130);
+    final showTimeFontSize = _clamp(contentWidth * 0.135, 68, 200);
+    final blockGap = _clamp(height * 0.018, 10, 24);
+
+    // 休憩中の「再開予定」表示専用のサイズ。現在時刻・公演時間の文字サイズ
+    // には影響させず、再開予定のラベル・時刻のみを拡大して視認性を高めます。
+    final resumeLabelFontSize = labelFontSize * 1.2;
+    final resumeTimeFontSize = currentTimeFontSize * 0.68;
+
+    final buttonHeight = _clamp(height * 0.090, 54, 82);
+    final buttonWidth = _clamp(width * 0.26, 220, 340);
+    final buttonFontSize = _clamp(width * 0.022, 18, 30);
+    final buttonTopGap = _clamp(height * 0.024, 14, 28);
+
+    final isOnBreak = _isOnBreakWithEndTime;
+
+    final controlsAreVisible =
+        _controlsVisible &&
+        !_isTitleDialogOpen &&
+        !_isSettingsOpen &&
+        !_isAboutOpen &&
+        !_isBreakDialogOpen;
+
+    final currentTimeBlock = _showCurrentTime
+        ? CurrentTimeDisplay(
+            label: _t('現在時刻', 'CURRENT TIME'),
+            showSeconds: _showCurrentSeconds,
+            use24Hour: _use24Hour,
+            labelFontSize: labelFontSize,
+            timeFontSize: currentTimeFontSize,
+            labelGap: labelGap,
+          )
+        : const SizedBox.shrink();
+
+    Widget clockArea = currentTimeBlock;
+
+    if (isOnBreak) {
+      final resumeBlock = BreakResumeDisplay(
+        resumeAt: _breakEndsAt!,
+        use24Hour: _use24Hour,
+        isEndingSoon: _isBreakEndingSoon,
+        label: _t('再開予定', 'RESUMES AT'),
+        labelFontSize: resumeLabelFontSize,
+        timeFontSize: resumeTimeFontSize,
+        labelGap: labelGap,
+        maxWidth: isWideEnoughForRow
+            ? (contentWidth - rowGap) / 2
+            : contentWidth,
+        normalColor: const Color(0xFFFFA726),
+      );
+
+      clockArea = isWideEnoughForRow
+          ? Row(
+              key: const ValueKey('desktop-clock-row'),
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: currentTimeBlock,
+                  ),
+                ),
+                SizedBox(width: rowGap),
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: resumeBlock,
+                  ),
+                ),
+              ],
+            )
+          : Column(
+              key: const ValueKey('desktop-clock-column'),
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                currentTimeBlock,
+                SizedBox(height: blockGap),
+                resumeBlock,
+              ],
+            );
+    }
+
+    final children = <Widget>[
+      Expanded(
+        key: const ValueKey('desktop-comment'),
+        flex: 3,
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.topCenter,
+          child: SizedBox(
+            width: contentWidth,
+            child: _buildShowTitle(
+              fontSize: commentFontSize,
+              availableWidth: contentWidth,
+              maxLines: commentMaxLines,
+            ),
+          ),
+        ),
+      ),
+
+      SizedBox(
+        key: const ValueKey('desktop-gap-after-comment'),
+        height: blockGap,
+      ),
+
+      Expanded(
+        key: const ValueKey('desktop-clock-area'),
+        flex: 4,
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: SizedBox(width: contentWidth, child: clockArea),
+        ),
+      ),
+
+      SizedBox(
+        key: const ValueKey('desktop-gap-after-clock'),
+        height: blockGap,
+      ),
+
+      Expanded(
+        key: const ValueKey('desktop-show-time'),
+        flex: 5,
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: SizedBox(
+            width: contentWidth,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _t('公演時間', 'SHOW TIME'),
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: labelFontSize,
+                  ),
+                ),
+                SizedBox(height: labelGap),
+                ShowElapsedDisplay(
+                  elapsed: _timerController.elapsed,
+                  color: _showTimeColor,
+                  fontSize: showTimeFontSize,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+
+      SizedBox(
+        key: const ValueKey('desktop-gap-before-button'),
+        height: buttonTopGap,
+      ),
+
+      SizedBox(
+        key: const ValueKey('desktop-button'),
+        width: buttonWidth,
+        height: buttonHeight,
+        child: AnimatedSwitcher(
+          duration: Duration.zero,
+          child: MainControls(
+            status: _timerController.status,
+            controlsVisible: controlsAreVisible,
+            width: buttonWidth,
+            height: buttonHeight,
+            fontSize: buttonFontSize,
+            onStart: _startShowTime,
+            onPause: _pauseShowTime,
+            onResume: _resumeShowTime,
+            breakFeatureEnabled: _breakFeatureEnabled,
+            onStartBreak: () {
+              unawaited(_startBreakFlow());
+            },
+            onResumeFromBreakNow: _resumeFromBreakNow,
+            startLabel: _t('スタート', 'START'),
+            pauseLabel: _t('一時停止', 'PAUSE'),
+            resumeLabel: _t('再開', 'RESUME'),
+            breakLabel: _t('休憩', 'Start Break'),
+            resumeFromBreakLabel: _t('今すぐ再開', 'Resume Now'),
+            resetButton: HoldResetButton(
+              width: (buttonWidth - 12) / 2,
+              height: buttonHeight,
+              fontSize: buttonFontSize,
+              onReset: _resetShowTime,
+              resetLabel: _t('リセット', 'RESET'),
+              holdLabel: _t('ホールド', 'HOLD'),
+            ),
+          ),
+        ),
+      ),
+    ];
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        horizontalPadding,
+        topPadding,
+        horizontalPadding,
+        bottomPadding,
+      ),
+      child: Column(children: children),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
   // メイン画面
   // ---------------------------------------------------------------------------
 
@@ -665,7 +1933,10 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
         child: GestureDetector(
           behavior: HitTestBehavior.translucent,
           onTap: () {
-            if (_isTitleDialogOpen || _isSettingsOpen || _isAboutOpen) {
+            if (_isTitleDialogOpen ||
+                _isSettingsOpen ||
+                _isAboutOpen ||
+                _isBreakDialogOpen) {
               return;
             }
 
@@ -709,6 +1980,48 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
                     final isCompactHeight = height < 600;
                     final isLargeDesktop = width >= 1100 && height >= 700;
                     final isVeryLargeDesktop = width >= 1400 && height >= 850;
+
+                    // iPad等のタブレット端末（macOS/Windows/Linuxのデスクトップ
+                    // ウィンドウは対象外）。shortestSide >= 600を目安に判定します。
+                    final isTabletFormFactor =
+                        !kIsWeb && !isDesktopPlatform && !isPhone;
+                    final isTabletPortrait =
+                        isTabletFormFactor && height >= width;
+                    final isTabletLandscape =
+                        isTabletFormFactor && width > height;
+
+                    if (isTabletLandscape) {
+                      return _buildTabletLandscapeLayout(
+                        width: width,
+                        height: height,
+                      );
+                    }
+
+                    if (isTabletPortrait) {
+                      return _buildTabletPortraitLayout(
+                        width: width,
+                        height: height,
+                      );
+                    }
+
+                    // macOS等のデスクトップウィンドウは専用レイアウトを使い、
+                    // タイトル・コメントの長さに関わらず「今すぐ再開」ボタンが
+                    // 画面外へ押し出されないようにします。
+                    if (isDesktopPlatform && !isKeyboardVisible) {
+                      return _buildDesktopLayout(width: width, height: height);
+                    }
+
+                    // iPhone縦画面はiPad縦画面と同じ情報順序（現在時刻→再開予定
+                    // →公演時間→コメント→ボタン）の専用レイアウトを使います。
+                    // コメント編集は別モーダルダイアログで行われるため、このメイン
+                    // 画面自体でソフトウェアキーボードを気にする必要はありません
+                    // が、念のため同じガードを付けています。
+                    if (isPhonePortrait && !isKeyboardVisible) {
+                      return _buildPhonePortraitLayout(
+                        width: width,
+                        height: height,
+                      );
+                    }
 
                     final horizontalPadding = _clamp(
                       width *
@@ -849,6 +2162,21 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
                       26,
                     );
 
+                    // 休憩中の「再開予定」表示の上下余白。
+                    // 公演時間表示を不必要に下へ押しすぎないよう控えめに設定します。
+                    final breakResumeGap = _clamp(
+                      height *
+                          (isPhoneLandscape
+                              ? 0.020
+                              : isPhonePortrait
+                              ? 0.014
+                              : isCompactHeight
+                              ? 0.012
+                              : 0.020),
+                      6,
+                      18,
+                    );
+
                     final buttonWidth = isPhoneLandscape
                         ? _clamp(landscapeLeftWidth * 0.78, 180, 280)
                         : isPhonePortrait
@@ -893,57 +2221,126 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
                         _controlsVisible &&
                         !_isTitleDialogOpen &&
                         !_isSettingsOpen &&
-                        !_isAboutOpen;
+                        !_isAboutOpen &&
+                        !_isBreakDialogOpen;
 
                     // -----------------------------------------------------------
                     // iPhone横画面・左側
                     // コメント＋操作ボタン
                     // -----------------------------------------------------------
+                    //
+                    // このパネルは実際にはRowのCrossAxisAlignment.center
+                    // （デフォルト）によって全体がまとめて縦方向中央寄せ
+                    // されています（内側のColumnはSingleChildScrollView
+                    // による無限高さの中で完全に中身の高さへ縮むため、
+                    // Column自身のmainAxisAlignment.centerは実効しません）。
+                    // 未入力時の鉛筆アイコンだけを右上の歯車アイコンに
+                    // 近い高さへ寄せるため、コメントと操作ボタンをStackで
+                    // 個別に配置し、操作ボタンの位置は中央寄せ時と同じ式
+                    // （centeringTop + コメント予約高 + 間隔）で計算する
+                    // ことで、これまでどおり動かさないようにしています。
 
-                    final landscapeControlsPanel = Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        _buildShowTitle(
+                    final landscapeTitleAvailableWidth =
+                        landscapeLeftWidth - 8 < portraitEquivalentTitleWidth
+                        ? landscapeLeftWidth - 8
+                        : portraitEquivalentTitleWidth;
+
+                    final landscapeTitleReservedHeight =
+                        ShowTitle.reservedHeightFor(
                           fontSize: titleFontSize,
-                          availableWidth:
-                              landscapeLeftWidth - 8 <
-                                  portraitEquivalentTitleWidth
-                              ? landscapeLeftWidth - 8
-                              : portraitEquivalentTitleWidth,
                           maxLines: 8,
-                        ),
+                        );
 
-                        SizedBox(height: buttonTopGap),
+                    final landscapePanelHeight = contentMinHeight < 0
+                        ? 0.0
+                        : contentMinHeight;
 
-                        SizedBox(
-                          width: buttonWidth,
-                          height: buttonHeight,
-                          child: AnimatedSwitcher(
-                            duration: Duration.zero,
-                            child: MainControls(
-                              status: _timerController.status,
-                              controlsVisible: controlsAreVisible,
-                              width: buttonWidth,
-                              height: buttonHeight,
-                              fontSize: buttonFontSize,
-                              onStart: _startShowTime,
-                              onPause: _pauseShowTime,
-                              onResume: _resumeShowTime,
-                              startLabel: _t('スタート', 'START'),
-                              pauseLabel: _t('一時停止', 'PAUSE'),
-                              resumeLabel: _t('再開', 'RESUME'),
-                              resetButton: HoldResetButton(
-                                width: (buttonWidth - 12) / 2,
-                                height: buttonHeight,
-                                fontSize: buttonFontSize,
-                                onReset: _resetShowTime,
-                                resetLabel: _t('リセット', 'RESET'),
-                                holdLabel: _t('ホールド', 'HOLD'),
+                    final landscapeGroupHeight =
+                        landscapeTitleReservedHeight +
+                        buttonTopGap +
+                        buttonHeight;
+
+                    // Rowが中央寄せしていた場合と同じ余白（センタリングで
+                    // 生じる上側の余白）。
+                    final landscapeCenteringTop =
+                        ((landscapePanelHeight - landscapeGroupHeight) / 2)
+                            .clamp(0.0, double.infinity);
+
+                    // 鉛筆アイコンは歯車アイコンに近い高さまで引き上げます
+                    // が、中央寄せの余白より下がることはありません。
+                    const landscapeTitleTopInset = 4.0;
+                    final landscapeTitleTop =
+                        landscapeCenteringTop < landscapeTitleTopInset
+                        ? landscapeCenteringTop
+                        : landscapeTitleTopInset;
+
+                    final landscapeControlsPanel = SizedBox(
+                      height: landscapePanelHeight,
+                      child: Stack(
+                        children: [
+                          Positioned(
+                            top: landscapeTitleTop,
+                            left: 0,
+                            right: 0,
+                            child: Center(
+                              child: _buildShowTitle(
+                                fontSize: titleFontSize,
+                                availableWidth: landscapeTitleAvailableWidth,
+                                maxLines: 8,
                               ),
                             ),
                           ),
-                        ),
-                      ],
+
+                          Positioned(
+                            top:
+                                landscapeCenteringTop +
+                                landscapeTitleReservedHeight +
+                                buttonTopGap,
+                            left: 0,
+                            right: 0,
+                            child: Center(
+                              child: SizedBox(
+                                width: buttonWidth,
+                                height: buttonHeight,
+                                child: AnimatedSwitcher(
+                                  duration: Duration.zero,
+                                  child: MainControls(
+                                    status: _timerController.status,
+                                    controlsVisible: controlsAreVisible,
+                                    width: buttonWidth,
+                                    height: buttonHeight,
+                                    fontSize: buttonFontSize,
+                                    onStart: _startShowTime,
+                                    onPause: _pauseShowTime,
+                                    onResume: _resumeShowTime,
+                                    breakFeatureEnabled: _breakFeatureEnabled,
+                                    onStartBreak: () {
+                                      unawaited(_startBreakFlow());
+                                    },
+                                    onResumeFromBreakNow: _resumeFromBreakNow,
+                                    startLabel: _t('スタート', 'START'),
+                                    pauseLabel: _t('一時停止', 'PAUSE'),
+                                    resumeLabel: _t('再開', 'RESUME'),
+                                    breakLabel: _t('休憩', 'Start Break'),
+                                    resumeFromBreakLabel: _t(
+                                      '今すぐ再開',
+                                      'Resume Now',
+                                    ),
+                                    resetButton: HoldResetButton(
+                                      width: (buttonWidth - 12) / 2,
+                                      height: buttonHeight,
+                                      fontSize: buttonFontSize,
+                                      onReset: _resetShowTime,
+                                      resetLabel: _t('リセット', 'RESET'),
+                                      holdLabel: _t('ホールド', 'HOLD'),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     );
 
                     // -----------------------------------------------------------
@@ -966,6 +2363,23 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
 
                           SizedBox(height: sectionGap),
                         ],
+
+                        Transform.translate(
+                          key: const ValueKey(
+                            'phone-landscape-resume-position',
+                          ),
+                          // 再開予定だけを少し上へ寄せます。レイアウト上の
+                          // 占有高は変えないため、公演時間や操作ボタンの位置
+                          // には影響しません。
+                          offset: Offset(0, -_clamp(height * 0.025, 8, 12)),
+                          child: _buildBreakResumeArea(
+                            currentTimeFontSize: currentTimeFontSize,
+                            labelFontSize: labelFontSize,
+                            labelGap: labelGap,
+                            outerGap: breakResumeGap,
+                            maxWidth: landscapeRightWidth,
+                          ),
+                        ),
 
                         Text(
                           _t('公演時間', 'SHOW TIME'),
@@ -1104,6 +2518,14 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
                                                 : const SizedBox.shrink(),
                                           ),
 
+                                          _buildBreakResumeArea(
+                                            currentTimeFontSize:
+                                                currentTimeFontSize,
+                                            labelFontSize: labelFontSize,
+                                            labelGap: labelGap,
+                                            outerGap: breakResumeGap,
+                                          ),
+
                                           Text(
                                             _t('公演時間', 'SHOW TIME'),
 
@@ -1144,11 +2566,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
                                         child: MainControls(
                                           status: _timerController.status,
 
-                                          controlsVisible:
-                                              _controlsVisible &&
-                                              !_isTitleDialogOpen &&
-                                              !_isSettingsOpen &&
-                                              !_isAboutOpen,
+                                          controlsVisible: controlsAreVisible,
 
                                           width: buttonWidth,
 
@@ -1162,11 +2580,28 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
 
                                           onResume: _resumeShowTime,
 
+                                          breakFeatureEnabled:
+                                              _breakFeatureEnabled,
+
+                                          onStartBreak: () {
+                                            unawaited(_startBreakFlow());
+                                          },
+
+                                          onResumeFromBreakNow:
+                                              _resumeFromBreakNow,
+
                                           startLabel: _t('スタート', 'START'),
 
                                           pauseLabel: _t('一時停止', 'PAUSE'),
 
                                           resumeLabel: _t('再開', 'RESUME'),
+
+                                          breakLabel: _t('休憩', 'Start Break'),
+
+                                          resumeFromBreakLabel: _t(
+                                            '今すぐ再開',
+                                            'Resume Now',
+                                          ),
 
                                           resetButton: HoldResetButton(
                                             width: (buttonWidth - 12) / 2,
@@ -1211,7 +2646,7 @@ class _ShowTimeScreenState extends State<ShowTimeScreen> with WindowListener {
     );
 
     final shortcutLayer = CallbackShortcuts(
-      bindings: _isTitleDialogOpen
+      bindings: _isTitleDialogOpen || _isBreakDialogOpen
           ? const <ShortcutActivator, VoidCallback>{}
           : <ShortcutActivator, VoidCallback>{
               const SingleActivator(LogicalKeyboardKey.space):
@@ -1580,6 +3015,137 @@ class _ShowCommentEditDialogState extends State<_ShowCommentEditDialog> {
                       ),
                       child: Text(
                         _t('保存', 'Save'),
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BreakConfirmDialog extends StatelessWidget {
+  const _BreakConfirmDialog({
+    required this.language,
+    required this.breakDuration,
+    required this.resumeAt,
+    required this.formatTime,
+  });
+
+  final AppLanguage language;
+  final Duration breakDuration;
+  final DateTime resumeAt;
+  final String Function(DateTime time) formatTime;
+
+  String _t(String japanese, String english) {
+    return language == AppLanguage.japanese ? japanese : english;
+  }
+
+  String get _durationLabel {
+    final hours = breakDuration.inHours;
+    final minutes = breakDuration.inMinutes.remainder(60);
+
+    if (language == AppLanguage.japanese) {
+      final buffer = StringBuffer();
+      if (hours > 0) {
+        buffer.write('$hours時間');
+      }
+      if (minutes > 0 || hours == 0) {
+        buffer.write('$minutes分');
+      }
+      return buffer.toString();
+    }
+
+    final parts = <String>[
+      if (hours > 0) '${hours}h',
+      if (minutes > 0 || hours == 0) '${minutes}m',
+    ];
+    return parts.join(' ');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final resumeLabel = formatTime(resumeAt);
+
+    return Dialog(
+      backgroundColor: const Color(0xFF171717),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(22),
+        side: const BorderSide(color: Colors.white12),
+      ),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                _t('休憩', 'Start Break'),
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+
+              const SizedBox(height: 14),
+
+              Text(
+                _t(
+                  '$_durationLabel休憩します。再開は$resumeLabelです。',
+                  'Break for $_durationLabel. Resumes at $resumeLabel.',
+                ),
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 15,
+                  height: 1.4,
+                ),
+              ),
+
+              const SizedBox(height: 22),
+
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(context).pop(false),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(0, 50),
+                        foregroundColor: Colors.white70,
+                        side: const BorderSide(color: Colors.white24),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      child: Text(_t('キャンセル', 'Cancel')),
+                    ),
+                  ),
+
+                  const SizedBox(width: 14),
+
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () => Navigator.of(context).pop(true),
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size(0, 50),
+                        backgroundColor: const Color(0xFFFF9100),
+                        foregroundColor: Colors.black,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      child: Text(
+                        _t('休憩', 'Start Break'),
                         style: const TextStyle(fontWeight: FontWeight.w700),
                       ),
                     ),

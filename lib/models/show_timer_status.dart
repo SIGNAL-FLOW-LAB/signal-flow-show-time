@@ -1,1 +1,1 @@
-enum ShowTimerStatus { idle, running, paused }
+enum ShowTimerStatus { idle, running, paused, onBreak }

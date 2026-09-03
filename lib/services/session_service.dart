@@ -10,9 +10,15 @@ class SavedWindowState {
 }
 
 class SavedTimerState {
-  const SavedTimerState({required this.elapsed});
+  const SavedTimerState({
+    required this.elapsed,
+    required this.isOnBreak,
+    required this.breakEndsAt,
+  });
 
   final Duration elapsed;
+  final bool isOnBreak;
+  final DateTime? breakEndsAt;
 }
 
 class SessionService {
@@ -23,6 +29,10 @@ class SessionService {
 
   static const String _timerElapsedMillisecondsKey =
       'session.timer.elapsedMilliseconds';
+
+  static const String _timerIsOnBreakKey = 'session.timer.isOnBreak';
+  static const String _timerBreakEndsAtMillisecondsKey =
+      'session.timer.breakEndsAtMilliseconds';
 
   Future<SavedWindowState?> loadWindowState() async {
     final preferences = await SharedPreferences.getInstance();
@@ -68,19 +78,40 @@ class SessionService {
     final elapsedMilliseconds =
         preferences.getInt(_timerElapsedMillisecondsKey) ?? 0;
 
+    final isOnBreak = preferences.getBool(_timerIsOnBreakKey) ?? false;
+
+    final breakEndsAtMilliseconds = preferences.getInt(
+      _timerBreakEndsAtMillisecondsKey,
+    );
+
     return SavedTimerState(
       elapsed: Duration(
         milliseconds: elapsedMilliseconds < 0 ? 0 : elapsedMilliseconds,
       ),
+      isOnBreak: isOnBreak,
+      breakEndsAt: breakEndsAtMilliseconds == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(breakEndsAtMilliseconds),
     );
   }
 
-  Future<void> saveTimerState(Duration elapsed) async {
+  Future<void> saveTimerState({
+    required Duration elapsed,
+    required bool isOnBreak,
+    DateTime? breakEndsAt,
+  }) async {
     final preferences = await SharedPreferences.getInstance();
 
-    await preferences.setInt(
-      _timerElapsedMillisecondsKey,
-      elapsed.inMilliseconds,
-    );
+    await Future.wait([
+      preferences.setInt(_timerElapsedMillisecondsKey, elapsed.inMilliseconds),
+      preferences.setBool(_timerIsOnBreakKey, isOnBreak),
+      if (breakEndsAt != null)
+        preferences.setInt(
+          _timerBreakEndsAtMillisecondsKey,
+          breakEndsAt.millisecondsSinceEpoch,
+        )
+      else
+        preferences.remove(_timerBreakEndsAtMillisecondsKey),
+    ]);
   }
 }

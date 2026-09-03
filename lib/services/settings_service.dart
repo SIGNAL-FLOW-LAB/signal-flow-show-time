@@ -12,6 +12,8 @@ class AppSettings {
     required this.use24Hour,
     required this.language,
     required this.commentAlignment,
+    required this.breakFeatureEnabled,
+    required this.breakDuration,
   });
 
   final String showTitle;
@@ -21,6 +23,8 @@ class AppSettings {
   final bool use24Hour;
   final AppLanguage language;
   final CommentAlignment commentAlignment;
+  final bool breakFeatureEnabled;
+  final Duration breakDuration;
 }
 
 class SettingsService {
@@ -36,6 +40,11 @@ class SettingsService {
 
   // v1.0.4 コメント位置
   static const String _commentAlignmentKey = 'comment_alignment';
+
+  // 休憩機能
+  static const String _breakFeatureEnabledKey = 'break_feature_enabled';
+  static const String _breakDurationMinutesKey = 'break_duration_minutes';
+  static const int _defaultBreakDurationMinutes = 15;
 
   final SharedPreferencesAsync _preferences;
 
@@ -66,6 +75,13 @@ class SettingsService {
       orElse: () => CommentAlignment.center,
     );
 
+    final breakFeatureEnabled =
+        await _preferences.getBool(_breakFeatureEnabledKey) ?? false;
+
+    final breakDurationMinutes =
+        await _preferences.getInt(_breakDurationMinutesKey) ??
+        _defaultBreakDurationMinutes;
+
     return AppSettings(
       showTitle: showTitle.trim(),
       alwaysOnTop: alwaysOnTop,
@@ -76,6 +92,12 @@ class SettingsService {
           ? AppLanguage.english
           : AppLanguage.japanese,
       commentAlignment: commentAlignment,
+      breakFeatureEnabled: breakFeatureEnabled,
+      breakDuration: Duration(
+        minutes: breakDurationMinutes <= 0
+            ? _defaultBreakDurationMinutes
+            : breakDurationMinutes,
+      ),
     );
   }
 
@@ -139,5 +161,21 @@ class SettingsService {
       _languageKey,
       value == AppLanguage.english ? 'en' : 'ja',
     );
+  }
+
+  // ---------------------------------------------------------------------------
+  // 休憩機能
+  // ---------------------------------------------------------------------------
+
+  Future<void> saveBreakFeatureEnabled(bool value) {
+    return _preferences.setBool(_breakFeatureEnabledKey, value);
+  }
+
+  Future<void> saveBreakDuration(Duration value) {
+    final minutes = value.inMinutes <= 0
+        ? _defaultBreakDurationMinutes
+        : value.inMinutes;
+
+    return _preferences.setInt(_breakDurationMinutesKey, minutes);
   }
 }
